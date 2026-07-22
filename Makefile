@@ -18,7 +18,7 @@ image:
 
 ci: image
 	$(PODMAN_RUN) bash -ec '\
-	  cmake -S $(SDK_DIR) -B build -DUSE_SYSTEM_DEPS=ON -DBUILD_TESTING=ON -DBUILD_SHARED_LIBS=ON && \
+	  cmake -S $(SDK_DIR) -B build -DUSE_SYSTEM_DEPS=OFF -DBUILD_TESTING=ON -DBUILD_SHARED_LIBS=ON && \
 	  cmake --build build -j$$(nproc) && \
 	  ctest --test-dir build --output-on-failure'
 
