@@ -12,14 +12,37 @@ binaries=(
 )
 for binary in "${binaries[@]}"; do
   readelf -h "$binary" >/dev/null
+  if ! dynamic_info=$(readelf -d "$binary"); then
+    echo "failed to read dynamic section from ${binary#$root/}" >&2
+    exit 1
+  fi
+  needed=$(sed -n 's/.*Shared library: \[\([^]]*\)\].*/\1/p' <<< "$dynamic_info")
+  if [[ -z "$needed" ]]; then
+    echo "no DT_NEEDED entries found in ${binary#$root/}" >&2
+    exit 1
+  fi
   while read -r soname; do
     if ! grep -Fxq "$soname" "$allow_file"; then
       echo "forbidden DT_NEEDED entry in ${binary#$root/}: $soname" >&2
       exit 1
     fi
-  done < <(readelf -d "$binary" | sed -n 's/.*Shared library: \[\([^]]*\)\].*/\1/p')
+  done <<< "$needed"
 
-  versions=$(readelf --version-info "$binary" | grep -oE 'GLIBC_[0-9.]+|GLIBCXX_[0-9.]+|CXXABI_[0-9.]+' | sort -u || true)
+  if ! version_info=$(readelf --version-info "$binary"); then
+    echo "failed to read symbol versions from ${binary#$root/}" >&2
+    exit 1
+  fi
+  set +e
+  versions=$(grep -oE 'GLIBC_[0-9.]+|GLIBCXX_[0-9.]+|CXXABI_[0-9.]+' <<< "$version_info")
+  grep_status=$?
+  set -e
+  if ((grep_status > 1)); then
+    echo "failed to parse symbol versions from ${binary#$root/}" >&2
+    exit 1
+  fi
+  if [[ -n "$versions" ]]; then
+    versions=$(sort -u <<< "$versions")
+  fi
   while read -r version; do
     [[ -z "$version" ]] && continue
     case "$version" in
@@ -33,7 +56,11 @@ for binary in "${binaries[@]}"; do
     fi
   done <<< "$versions"
 
-  if strings "$binary" | grep -F -e '/etc/ssl/certs/ca-certificates.crt' -e '/etc/pki/tls/certs/ca-bundle.crt'; then
+  if ! binary_strings=$(strings "$binary"); then
+    echo "failed to extract strings from ${binary#$root/}" >&2
+    exit 1
+  fi
+  if grep -F -e '/etc/ssl/certs/ca-certificates.crt' -e '/etc/pki/tls/certs/ca-bundle.crt' <<< "$binary_strings"; then
     echo "compiled host CA path found in ${binary#$root/}" >&2
     exit 1
   fi
