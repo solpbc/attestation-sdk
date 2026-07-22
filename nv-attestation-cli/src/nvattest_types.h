@@ -48,6 +48,14 @@ namespace nvattest {
         }
     };
 
+    template<> struct DeleterOf<nvat_http_options_t> {
+        void operator()(nvat_http_options_t* ptr) const {
+            if (ptr) {
+                nvat_http_options_free(ptr);
+            }
+        }
+    };
+
     template<> struct DeleterOf<nvat_claims_collection_t> {
         void operator()(nvat_claims_collection_t* ptr) const {
             if (ptr) {

@@ -34,6 +34,13 @@
 
 namespace nvattestation {
 
+    Error resolve_ca_bundle_path(
+        const std::string& explicit_path,
+        std::string& out_path,
+        std::string& out_tier,
+        const std::string* compiled_default_override = nullptr,
+        const std::vector<std::string>* probe_paths_override = nullptr);
+
     enum NvHttpStatus {
         HTTP_STATUS_OK = 200,
         HTTP_STATUS_NOT_FOUND = 404,
@@ -84,26 +91,42 @@ namespace nvattestation {
             long connection_timeout_ms;
             /** Overall request timeout, in milliseconds. */
             long request_timeout_ms;
+            /** Resolved CA certificate bundle path. */
+            std::string ca_bundle_path;
+            /** Resolution tier that supplied ca_bundle_path. */
+            std::string ca_bundle_path_tier;
+            /** Result of resolving ca_bundle_path. */
+            Error ca_bundle_path_error;
 
             HttpOptions() :
                 max_retry_count(NVAT_HTTP_DEFAULT_RETRY_COUNT),
                 base_backoff_ms(NVAT_HTTP_DEFAULT_BASE_BACKOFF_MS),
                 max_backoff_ms(NVAT_HTTP_DEFAULT_MAX_BACKOFF_MS),
                 connection_timeout_ms(NVAT_HTTP_DEFAULT_CONNECTION_TIMEOUT_MS),
-                request_timeout_ms(NVAT_HTTP_DEFAULT_REQUEST_TIMEOUT_MS) {}
+                request_timeout_ms(NVAT_HTTP_DEFAULT_REQUEST_TIMEOUT_MS),
+                ca_bundle_path_error(Error::InternalError) {
+                    ca_bundle_path_error = resolve_ca_bundle_path("", ca_bundle_path, ca_bundle_path_tier);
+                }
 
             HttpOptions(int retry, long base_backoff_ms, long max_backoff_ms, long connection_timeout_ms, long request_timeout_ms) : 
                 max_retry_count(std::max(0, retry)),
                 base_backoff_ms(std::max(0L, base_backoff_ms)),
                 max_backoff_ms(std::max(0L, max_backoff_ms)),
                 connection_timeout_ms(std::max(0L, connection_timeout_ms)),
-                request_timeout_ms(std::max(0L, request_timeout_ms)) {}
+                request_timeout_ms(std::max(0L, request_timeout_ms)),
+                ca_bundle_path_error(Error::InternalError) {
+                    ca_bundle_path_error = resolve_ca_bundle_path("", ca_bundle_path, ca_bundle_path_tier);
+                }
 
             void set_max_retry_count(long retry) { this->max_retry_count = std::max(0l, retry); }
             void set_base_backoff_ms(long retry_backoff_ms) { this->base_backoff_ms = std::max(0L, retry_backoff_ms); }
             void set_max_backoff_ms(long max_backoff_ms) { this->max_backoff_ms = std::max(0L, max_backoff_ms); }
             void set_connection_timeout_ms(long connection_timeout_ms) { this->connection_timeout_ms = std::max(0L, connection_timeout_ms); }
             void set_request_timeout_ms(long request_timeout_ms) { this->request_timeout_ms = std::max(0L, request_timeout_ms); }
+            Error set_ca_bundle_path(const std::string& path) {
+                ca_bundle_path_error = resolve_ca_bundle_path(path, ca_bundle_path, ca_bundle_path_tier);
+                return ca_bundle_path_error;
+            }
     };
 
     class NvRequest {

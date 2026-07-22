@@ -70,6 +70,7 @@ add_executable(nv-attestation-unit-tests
     switch/verifier_test.cpp
     switch_test_utils.cpp
     nv_http_test.cpp
+    ca_bundle_test.cpp
     claims_test.cpp
     nv_cache_test.cpp
 ) 

@@ -22,10 +22,39 @@
 #include "spdlog/spdlog.h"
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 
 namespace nvattest {
+
+    namespace {
+        void validate_evidence_collection_options(const EvidenceCollectionOptions& options) {
+            if (options.device == "gpu" && options.gpu_evidence_source == "file") {
+                if (options.gpu_evidence_file.empty()) {
+                    throw CLI::ValidationError("--gpu-evidence-file", "--gpu-evidence-file must be provided when --gpu-evidence-source=file");
+                }
+                auto validator = CLI::ExistingFile;
+                auto result = validator(options.gpu_evidence_file);
+                if (!result.empty()) {
+                    throw CLI::ValidationError("--gpu-evidence-file", result);
+                }
+            }
+            if (options.device == "gpu" && options.gpu_evidence_source == "corelib" && options.gpu_architecture.empty()) {
+                throw CLI::ValidationError("--gpu-architecture", "--gpu-architecture is required when --gpu-evidence-source=corelib");
+            }
+            if (options.device == "nvswitch" && options.switch_evidence_source == "file") {
+                if (options.switch_evidence_file.empty()) {
+                    throw CLI::ValidationError("--nvswitch-evidence-file", "--nvswitch-evidence-file must be provided when --nvswitch-evidence-source=file");
+                }
+                auto validator = CLI::ExistingFile;
+                auto result = validator(options.switch_evidence_file);
+                if (!result.empty()) {
+                    throw CLI::ValidationError("--nvswitch-evidence-file", result);
+                }
+            }
+        }
+    }
 
     nvat_log_level_t CommonOptions::get_log_level() const {
         if (log_level_str == "trace") return NVAT_LOG_LEVEL_TRACE;
@@ -81,31 +110,7 @@ namespace nvattest {
             ->default_str("");
 
         app->parse_complete_callback([&options]() {
-            if (options.device == "gpu" && options.gpu_evidence_source == "file") {
-                if (options.gpu_evidence_file.empty()) {
-                    throw CLI::ValidationError("--gpu-evidence-file", "--gpu-evidence-file must be provided when --gpu-evidence-source=file");
-                }
-                auto validator = CLI::ExistingFile;
-                auto result = validator(options.gpu_evidence_file);
-                if (!result.empty()) {
-                    throw CLI::ValidationError("--gpu-evidence-file", result);
-                }
-            }
-            if (options.device == "gpu" && options.gpu_evidence_source == "corelib") {
-                if (options.gpu_architecture.empty()) {
-                    throw CLI::ValidationError("--gpu-architecture", "--gpu-architecture is required when --gpu-evidence-source=corelib");
-                }
-            }
-            if (options.device == "nvswitch" && options.switch_evidence_source == "file") {
-                if (options.switch_evidence_file.empty()) {
-                    throw CLI::ValidationError("--nvswitch-evidence-file", "--nvswitch-evidence-file must be provided when --nvswitch-evidence-source=file");
-                }
-                auto validator = CLI::ExistingFile;
-                auto result = validator(options.switch_evidence_file);
-                if (!result.empty()) {
-                    throw CLI::ValidationError("--nvswitch-evidence-file", result);
-                }
-            }
+            validate_evidence_collection_options(options);
         });
     }
 
@@ -119,7 +124,10 @@ namespace nvattest {
             ->default_val(true);
     }
 
-    void add_evidence_verification_options(CLI::App* app, EvidenceVerificationOptions& options) {
+    void add_evidence_verification_options(
+        CLI::App* app,
+        EvidenceVerificationOptions& options,
+        const EvidenceCollectionOptions* collection_options) {
         app->add_option("--verifier", options.verifier, "Appraise evidence using the given verifier type")
             ->check(CLI::IsMember({"local", "remote"}))
             ->default_val("local");
@@ -144,6 +152,37 @@ namespace nvattest {
         app->add_option("--service-key", options.service_key, "Service key used to authenticate remote service calls to attestation services")
            ->envname("NV_ATTESTATION_SERVICE_KEY")
            ->default_val("");
+        app->add_option("--ca-bundle", options.ca_bundle_path, "Path to a CA certificate bundle used for HTTPS requests")
+            ->envname("NVAT_CA_BUNDLE");
+
+        app->parse_complete_callback([&options, collection_options]() {
+            if (collection_options != nullptr) {
+                validate_evidence_collection_options(*collection_options);
+            }
+            nvat_http_options_t http_options = nullptr;
+            nvat_rc_t rc = nvat_http_options_create_default(&http_options);
+            if (rc == NVAT_RC_OK) {
+                rc = nvat_http_options_set_ca_bundle_path(http_options, options.ca_bundle_path.c_str());
+            }
+            nvat_http_options_free(&http_options);
+            if (rc == NVAT_RC_OK) {
+                return;
+            }
+
+            if (!options.ca_bundle_path.empty()) {
+                const char* nvat_ca_bundle = std::getenv("NVAT_CA_BUNDLE");
+                const std::string tier = nvat_ca_bundle != nullptr && options.ca_bundle_path == nvat_ca_bundle
+                    ? "NVAT_CA_BUNDLE"
+                    : "--ca-bundle";
+                throw CLI::ValidationError(
+                    "--ca-bundle",
+                    "CA bundle path '" + options.ca_bundle_path + "' from " + tier
+                        + " does not exist or is not readable; provide a readable file with --ca-bundle or NVAT_CA_BUNDLE.");
+            }
+            throw CLI::ValidationError(
+                "--ca-bundle",
+                "No readable CA bundle was found; provide one with --ca-bundle or NVAT_CA_BUNDLE.");
+        });
     }
 
     void add_common_options(CLI::App& app, CommonOptions& options) {

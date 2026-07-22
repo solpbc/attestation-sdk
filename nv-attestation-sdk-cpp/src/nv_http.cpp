@@ -16,11 +16,14 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <curl/curl.h>
 #include <memory>
 #include <random>
 #include <thread>
 #include <chrono>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "nv_attestation/nv_http.h"
 #include "nv_attestation/error.h"
@@ -29,6 +32,110 @@
 #include "nv_attestation/utils.h"
 
 namespace nvattestation {
+
+    namespace {
+
+        const std::array<std::string, 5> CA_BUNDLE_PROBE_PATHS = {{
+            std::string("/etc/") + "ssl/certs/ca-certificates.crt",
+            std::string("/etc/") + "pki/tls/certs/ca-bundle.crt",
+            std::string("/etc/") + "ssl/ca-bundle.pem",
+            std::string("/etc/") + "ca-certificates/extracted/tls-ca-bundle.pem",
+            std::string("/etc/") + "ssl/cert.pem",
+        }};
+
+        bool is_readable_regular_file(const std::string& path) {
+            struct stat path_stat;
+            return !path.empty()
+                && stat(path.c_str(), &path_stat) == 0
+                && S_ISREG(path_stat.st_mode)
+                && access(path.c_str(), R_OK) == 0;
+        }
+
+        const std::string& compiled_default_ca_bundle_path() {
+            static const std::string path = []() {
+#if LIBCURL_VERSION_NUM >= 0x075400
+                nv_unique_ptr<CURL> curl_handle(curl_easy_init());
+                if (!curl_handle) {
+                    return std::string();
+                }
+                char* ca_info = nullptr;
+                CURLcode result = curl_easy_getinfo(curl_handle.get(), CURLINFO_CAINFO, &ca_info);
+                if (result == CURLE_OK && ca_info != nullptr && *ca_info != '\0') {
+                    return std::string(ca_info);
+                }
+#endif
+                return std::string();
+            }();
+            return path;
+        }
+
+        Error use_authoritative_ca_bundle_path(
+            const std::string& path,
+            const char* tier,
+            std::string& out_path,
+            std::string& out_tier) {
+            out_path = path;
+            out_tier = tier;
+            if (!is_readable_regular_file(path)) {
+                return Error::InternalError;
+            }
+            return Error::Ok;
+        }
+
+    }
+
+    Error resolve_ca_bundle_path(
+        const std::string& explicit_path,
+        std::string& out_path,
+        std::string& out_tier,
+        const std::string* compiled_default_override,
+        const std::vector<std::string>* probe_paths_override) {
+        out_path.clear();
+        out_tier.clear();
+
+        if (!explicit_path.empty()) {
+            return use_authoritative_ca_bundle_path(explicit_path, "--ca-bundle", out_path, out_tier);
+        }
+
+        constexpr std::array<const char*, 3> environment_tiers = {{
+            "NVAT_CA_BUNDLE",
+            "CURL_CA_BUNDLE",
+            "SSL_CERT_FILE",
+        }};
+        for (const char* environment_tier : environment_tiers) {
+            std::string path = get_env_or_default(environment_tier, "");
+            if (!path.empty()) {
+                return use_authoritative_ca_bundle_path(path, environment_tier, out_path, out_tier);
+            }
+        }
+
+        const std::string& compiled_default = compiled_default_override == nullptr
+            ? compiled_default_ca_bundle_path()
+            : *compiled_default_override;
+        if (is_readable_regular_file(compiled_default)) {
+            out_path = compiled_default;
+            out_tier = "libcurl compiled default";
+            return Error::Ok;
+        }
+
+        std::vector<std::string> default_probe_paths;
+        if (probe_paths_override == nullptr) {
+            default_probe_paths.assign(CA_BUNDLE_PROBE_PATHS.begin(), CA_BUNDLE_PROBE_PATHS.end());
+        }
+        const std::vector<std::string>& probe_paths = probe_paths_override == nullptr
+            ? default_probe_paths
+            : *probe_paths_override;
+        for (const std::string& probe_path : probe_paths) {
+            if (is_readable_regular_file(probe_path)) {
+                out_path = probe_path;
+                out_tier = "system CA bundle probe";
+                return Error::Ok;
+            }
+        }
+
+        out_tier = "no readable CA bundle; provide one with --ca-bundle or NVAT_CA_BUNDLE";
+        return Error::InternalError;
+    }
 
     Error NvHttpClient::create(NvHttpClient& out_client, std::string service_key, HttpOptions options) {
         out_client.m_service_key = std::move(service_key);
@@ -48,6 +155,16 @@ namespace nvattestation {
 
     Error NvHttpClient::do_request_as_string(const NvRequest& request, long& out_status, std::string& out_response) const {
         out_response.clear();
+        if (m_options.ca_bundle_path_error != Error::Ok || m_options.ca_bundle_path.empty()) {
+            if (!m_options.ca_bundle_path.empty()) {
+                LOG_ERROR("CA bundle path '" << m_options.ca_bundle_path << "' from "
+                    << m_options.ca_bundle_path_tier
+                    << " does not exist or is not readable; provide a readable file with --ca-bundle or NVAT_CA_BUNDLE.");
+            } else {
+                LOG_ERROR("No readable CA bundle was found; provide one with --ca-bundle or NVAT_CA_BUNDLE.");
+            }
+            return Error::InternalError;
+        }
         /*
             todo (p0): optimize usage of curl handles
 
@@ -67,6 +184,7 @@ namespace nvattestation {
         curl_easy_setopt(curl_handle.get(), CURLOPT_WRITEDATA, &out_response);
         curl_easy_setopt(curl_handle.get(), CURLOPT_CONNECTTIMEOUT_MS, m_options.connection_timeout_ms);
         curl_easy_setopt(curl_handle.get(), CURLOPT_TIMEOUT_MS, m_options.request_timeout_ms);
+        curl_easy_setopt(curl_handle.get(), CURLOPT_CAINFO, m_options.ca_bundle_path.c_str());
 
         curl_easy_setopt(curl_handle.get(), CURLOPT_URL, request.url.c_str());
 

@@ -81,7 +81,7 @@ namespace nvattest {
         );
 
         add_evidence_collection_options(subcommand, evidence_collection_options);
-        add_evidence_verification_options(subcommand, evidence_verification_options);
+        add_evidence_verification_options(subcommand, evidence_verification_options, &evidence_collection_options);
         add_evidence_policy_options(subcommand, evidence_policy_options);
         
         return subcommand;
@@ -142,11 +142,28 @@ namespace nvattest {
             return AttestOutput(err);
         }
 
+        nv_unique_ptr<nvat_http_options_t> http_options;
+        nvat_http_options_t raw_http_options = nullptr;
+        err = nvat_http_options_create_default(&raw_http_options);
+        if (err != NVAT_RC_OK) {
+            return AttestOutput(err);
+        }
+        http_options.reset(&raw_http_options);
+        err = nvat_http_options_set_ca_bundle_path(
+            *(http_options.get()), evidence_verification_options.ca_bundle_path.c_str());
+        if (err != NVAT_RC_OK) {
+            return AttestOutput(err);
+        }
+
         nv_unique_ptr<nvat_attestation_ctx_t> ctx;
         nvat_attestation_ctx_t raw_ctx = nullptr;
         err = nvat_attestation_ctx_create(&raw_ctx);
         if (err != NVAT_RC_OK) return AttestOutput(err);
         ctx.reset(&raw_ctx);
+        err = nvat_attestation_ctx_set_default_http_options(*(ctx.get()), *(http_options.get()));
+        if (err != NVAT_RC_OK) {
+            return AttestOutput(err);
+        }
 
         nv_unique_ptr<nvat_evidence_policy_t> evidence_policy;
         nvat_evidence_policy_t raw_policy = nullptr;
@@ -213,7 +230,7 @@ namespace nvattest {
             if (evidence_verification_options.rim_store == "remote") {
                 auto rim_url = evidence_verification_options.rim_url.c_str();
                 auto service_key = evidence_verification_options.service_key.empty() ? nullptr : evidence_verification_options.service_key.c_str();
-                err = nvat_rim_store_create_remote(&rim_store_raw, rim_url, service_key, nullptr);
+                err = nvat_rim_store_create_remote(&rim_store_raw, rim_url, service_key, *(http_options.get()));
                 if (err != NVAT_RC_OK) {
                     return AttestOutput(err);
                 }
@@ -239,7 +256,7 @@ namespace nvattest {
             nv_unique_ptr<nvat_ocsp_client_t> ocsp_client;
             nvat_ocsp_client_t ocsp_client_raw = nullptr;
             const char* service_key_cstr = evidence_verification_options.service_key.empty() ? nullptr : evidence_verification_options.service_key.c_str();
-            err = nvat_ocsp_client_create_default(&ocsp_client_raw, ocsp_base.c_str(), service_key_cstr, nullptr);
+            err = nvat_ocsp_client_create_default(&ocsp_client_raw, ocsp_base.c_str(), service_key_cstr, *(http_options.get()));
             if (err != NVAT_RC_OK) {
                 return AttestOutput(err);
             }
