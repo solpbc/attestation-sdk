@@ -3,6 +3,12 @@ set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
 cd "$root"
+dirty_status=$(git status --porcelain --untracked-files=all)
+if [[ -n "$dirty_status" ]]; then
+  echo "release requires a clean worktree; commit or remove these changes:" >&2
+  printf '%s\n' "$dirty_status" >&2
+  exit 1
+fi
 source sol/release/release.env
 
 upstream_version=$(sed -nE 's/^project\(nv-attestation VERSION ([0-9.]+)\)$/\1/p' nv-attestation-sdk-cpp/CMakeLists.txt)
@@ -24,6 +30,10 @@ podman run --rm \
   bash -ec 'rm -rf build/release && cmake -S nv-attestation-cli -B build/release -DUSE_SYSTEM_NVAT=OFF -DUSE_SYSTEM_DEPS=OFF -DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release && cmake --build build/release -j$(nproc)'
 
 work_dir=$(mktemp -d)
+cleanup() {
+  rm -rf -- "$work_dir"
+}
+trap cleanup EXIT
 stage="$work_dir/stage"
 extracted="$work_dir/extracted"
 mkdir -p "$stage/bin" "$stage/lib" "$stage/share/ca" "$extracted" dist
@@ -79,39 +89,10 @@ tar --sort=name --mtime="@$source_date_epoch" --owner=0 --group=0 --numeric-owne
   -C "$stage" -cJf "$archive" "${members[@]}"
 tar -C "$extracted" -xJf "$archive"
 
-for image_name in FEDORA_IMAGE TUMBLEWEED_IMAGE; do
-  image=${!image_name}
-  label=${image_name%_IMAGE}
-  output=$(podman run --rm \
-    -v "$extracted:/artifact:ro,Z" \
-    -v "$root/sol/release/gate-artifact.sh:/gate/gate-artifact.sh:ro,Z" \
-    -v "$root/sol/release/dt-needed.allow:/gate/dt-needed.allow:ro,Z" \
-    -v "$tool_dir:/gate-tools:ro,Z" \
-    -w /artifact "$image" sh -ec '
-    PATH=/gate-tools:$PATH /gate/gate-artifact.sh /artifact /gate/dt-needed.allow
-    LD_LIBRARY_PATH=lib ./bin/nvattest --help >/dev/null
-    if output=$(LD_LIBRARY_PATH=lib ./bin/nvattest attest --device gpu --gpu-evidence-source file --gpu-evidence-file /dev/null --verifier local --rim-store remote --ca-bundle /nonexistent/path 2>&1); then
-      echo "missing CA path unexpectedly succeeded" >&2
-      exit 1
-    fi
-    printf "%s\n" "$output"
-    printf "%s\n" "$output" | grep -F "/nonexistent/path" >/dev/null
-    printf "%s\n" "$output" | grep -F "from --ca-bundle" >/dev/null
-  ')
-  echo "[$label] bare-container runtime and eager-error gates passed"
-  printf '%s\n' "$output"
-done
-
-mapfile -t actual_members < <(tar -tJf "$archive")
-if [[ "$(printf '%s\n' "${actual_members[@]}")" != "$(printf '%s\n' "${members[@]}")" ]]; then
-  echo "archive member inventory mismatch" >&2
-  printf 'actual: %s\n' "${actual_members[@]}" >&2
-  exit 1
-fi
-
 artifact_hash=$(sha256sum "$archive" | awk '{print $1}')
 printf '%s  %s\n' "$artifact_hash" "$artifact_name" > "${archive}.sha256"
 manifest="dist/${artifact_name%.tar.xz}.manifest.json"
+manifest_name=$(basename "$manifest")
 manifest_args=()
 for member in "${members[@]}"; do
   manifest_args+=(--member "$member")
@@ -129,6 +110,53 @@ python3 sol/release/generate-manifest.py \
   --ca-sha256 "$CA_BUNDLE_SHA256" \
   --source-date-epoch "$source_date_epoch" \
   "${manifest_args[@]}"
+
+for image_name in FEDORA_IMAGE TUMBLEWEED_IMAGE; do
+  image=${!image_name}
+  label=${image_name%_IMAGE}
+  output=$(podman run --rm \
+    -v "$extracted:/artifact:ro,Z" \
+    -v "$root/sol/release/gate-artifact.sh:/gate/gate-artifact.sh:ro,Z" \
+    -v "$root/sol/release/dt-needed.allow:/gate/dt-needed.allow:ro,Z" \
+    -v "$tool_dir:/gate-tools:ro,Z" \
+    -v "$root/dist:/release:ro,Z" \
+    -e ARTIFACT_NAME="$artifact_name" \
+    -e MANIFEST_NAME="$manifest_name" \
+    -w /artifact "$image" sh -ec '
+    PATH=/gate-tools:$PATH /gate/gate-artifact.sh /artifact /gate/dt-needed.allow
+    LD_LIBRARY_PATH=lib ./bin/nvattest --help >/dev/null
+    if output=$(LD_LIBRARY_PATH=lib ./bin/nvattest attest --device gpu --gpu-evidence-source file --gpu-evidence-file /dev/null --verifier local --rim-store remote --ca-bundle /nonexistent/path 2>&1); then
+      echo "missing CA path unexpectedly succeeded" >&2
+      exit 1
+    fi
+    printf "%s\n" "$output"
+    printf "%s\n" "$output" | grep -F "/nonexistent/path" >/dev/null
+    printf "%s\n" "$output" | grep -F "from --ca-bundle" >/dev/null
+
+    test -f LICENSE
+    test -f bin/nvattest
+    test -L lib/libnvat.so
+    test -L lib/libnvat.so.1
+    test -f lib/libnvat.so.1.2.2
+    test -f share/ca/ca-bundle.pem
+    test -f share/THIRD_PARTY_NOTICES.md
+    set -- /artifact/*; test "$#" -eq 4
+    set -- /artifact/bin/*; test "$#" -eq 1
+    set -- /artifact/lib/*; test "$#" -eq 3
+    set -- /artifact/share/*; test "$#" -eq 2
+    set -- /artifact/share/ca/*; test "$#" -eq 1
+
+    set -- $(sha256sum "/release/$ARTIFACT_NAME"); archive_hash=$1
+    set -- $(cat "/release/${ARTIFACT_NAME}.sha256"); sidecar_hash=$1
+    manifest_hash=$(sed -n '\''/"artifact": {/,/}/ s/.*"sha256": "\([^"]*\)".*/\1/p'\'' "/release/$MANIFEST_NAME")
+    test -n "$manifest_hash"
+    test "$archive_hash" = "$sidecar_hash"
+    test "$archive_hash" = "$manifest_hash"
+    echo "archive layout and artifact hash gates passed"
+  ')
+  echo "[$label] bare-container runtime and eager-error gates passed"
+  printf '%s\n' "$output"
+done
 
 manifest_hash=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["artifact"]["sha256"])' "$manifest")
 sidecar_hash=$(awk 'NR == 1 {print $1}' "${archive}.sha256")
