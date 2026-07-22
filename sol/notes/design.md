@@ -1,5 +1,8 @@
 # Portable nvattest design
 
+> Non-authoritative planning record. `sol/release/release.env` is the sole
+> authority for the release revision, CA snapshot, and container image pins.
+
 ## Decisions and dependency order
 
 ### 1. One CA-resolution implementation (D1-D5)

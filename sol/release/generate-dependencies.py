@@ -46,7 +46,7 @@ def value_after(tokens, key):
 
 def classify(name, path):
     lowered = name.lower()
-    if lowered in {"googletest", "gtest"} or "test" in path.parts:
+    if lowered in {"googletest", "gtest"} or "unit-tests" in path.parts or "tests" in path.parts:
         return "test"
     if lowered == "corrosion":
         return "build"
@@ -54,11 +54,11 @@ def classify(name, path):
 
 
 def parse(root):
-    inputs = [
-        root / "nv-attestation-sdk-cpp/CMakeLists.txt",
-        root / "nv-attestation-cli/CMakeLists.txt",
-        root / "nv-attestation-sdk-cpp/cmake/nvat_fetch_gtest.cmake",
-    ]
+    inputs = sorted(
+        list((root / "nv-attestation-sdk-cpp").rglob("CMakeLists.txt"))
+        + list((root / "nv-attestation-cli").rglob("CMakeLists.txt"))
+    )
+    inputs.append(root / "nv-attestation-sdk-cpp/cmake/nvat_fetch_gtest.cmake")
     dependencies = {}
     for path in inputs:
         for tokens in declarations(path):
@@ -75,9 +75,6 @@ def parse(root):
                 if not url:
                     raise ValueError(f"dependency {name} has URL_HASH without URL in {path}")
                 if not url_hash:
-                    previous = dependencies.get(name.lower())
-                    if previous and previous.get("type") == "archive" and previous.get("url") == url and previous.get("hash"):
-                        continue
                     raise ValueError(f"dependency {name} archive URL has no URL_HASH in {path}")
                 if not re.search(r"(?:/v?\d|[-_]\d)", url):
                     raise ValueError(f"dependency {name} has a floating URL: {url}")
@@ -90,8 +87,16 @@ def parse(root):
                 raise ValueError(f"dependency {name} is unpinned or unrecognized in {path}")
             entry = {"name": name, "classification": classify(name, path), **pin}
             previous = dependencies.get(name.lower())
-            if previous and previous != entry:
-                raise ValueError(f"conflicting declarations for dependency {name}")
+            if previous:
+                previous_pin = {key: value for key, value in previous.items() if key not in {"name", "classification"}}
+                current_pin = {key: value for key, value in entry.items() if key not in {"name", "classification"}}
+                if previous_pin != current_pin:
+                    raise ValueError(f"conflicting declarations for dependency {name}")
+                if previous["classification"] == "runtime" or entry["classification"] == "runtime":
+                    entry["classification"] = "runtime"
+                elif previous["classification"] == "build" or entry["classification"] == "build":
+                    entry["classification"] = "build"
+                entry["name"] = previous["name"]
             dependencies[name.lower()] = entry
     return sorted(dependencies.values(), key=lambda item: item["name"].lower())
 
