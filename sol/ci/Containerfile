@@ -1,7 +1,7 @@
 # CI/build image for the sol portable nvattest rail.
 # manylinux_2_28 = AlmaLinux 8 userland, glibc 2.28 floor — matches upstream RHEL8 support intent.
-# TODO(L1): pin by digest + pin the rust toolchain per org release-rail conventions.
-FROM quay.io/pypa/manylinux_2_28_x86_64
+ARG CI_IMAGE
+FROM ${CI_IMAGE}
 
 RUN dnf install -y \
     openssl-devel libcurl-devel libxml2-devel xmlsec1-devel xmlsec1-openssl-devel \
