@@ -52,6 +52,7 @@ namespace nvattest {
         std::string ocsp_url;
         std::string nras_url;
         std::string service_key;
+        std::string ca_bundle_path;
     };
 
     struct CommonOptions {

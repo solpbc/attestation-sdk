@@ -402,6 +402,14 @@ void nvat_http_options_set_max_backoff_ms(nvat_http_options_t http_options, long
 void nvat_http_options_set_connection_timeout_ms(nvat_http_options_t http_options, long connection_timeout_ms);
 /** @brief Sets the overall request timeout of an HTTP request. */
 void nvat_http_options_set_request_timeout_ms(nvat_http_options_t http_options, long request_timeout_ms);
+/**
+ * @brief Resolve and set the CA certificate bundle used by HTTP requests.
+ *
+ * An empty path uses the default resolution order. A non-empty path takes
+ * precedence over the `NVAT_CA_BUNDLE`, `CURL_CA_BUNDLE`, and `SSL_CERT_FILE`
+ * environment variables and must name a readable file.
+ */
+nvat_rc_t nvat_http_options_set_ca_bundle_path(nvat_http_options_t http_options, const char* path);
 void nvat_http_options_free(nvat_http_options_t* http_options);
 
 /** @} options */
@@ -428,6 +436,7 @@ typedef struct nvat_ocsp_client_st* nvat_ocsp_client_t;
  * @param http_options If NULL, default HTTP options will be used.
  *
  * URL can also be set using the NVAT_OCSP_BASE_URL environment variable.
+ * The CA certificate bundle can be set using the NVAT_CA_BUNDLE environment variable.
  */
 nvat_rc_t nvat_ocsp_client_create_default(
     nvat_ocsp_client_t* out_client,
@@ -481,6 +490,7 @@ typedef struct nvat_rim_store_st* nvat_rim_store_t;
  * @param http_options If NULL, default HTTP options will be used.
  *
  * URL can also be set using the NVAT_RIM_SERVICE_BASE_URL environment variable.
+ * The CA certificate bundle can be set using the NVAT_CA_BUNDLE environment variable.
  *
  */
 nvat_rc_t nvat_rim_store_create_remote(
@@ -1007,6 +1017,7 @@ typedef struct nvat_gpu_local_verifier_st* nvat_gpu_local_verifier_t;
  * @param http_options If `NULL`, will use default HTTP options
  *
  * URL can also be set using the NVAT_NRAS_BASE_URL environment variable.
+ * The CA certificate bundle can be set using the NVAT_CA_BUNDLE environment variable.
  */
 nvat_rc_t nvat_gpu_nras_verifier_create(
     nvat_gpu_nras_verifier_t* out_verifier,
@@ -1265,6 +1276,12 @@ nvat_rc_t nvat_attestation_ctx_set_device_type(nvat_attestation_ctx_t ctx, nvat_
 nvat_rc_t nvat_attestation_ctx_set_verifier_type(nvat_attestation_ctx_t ctx, nvat_verifier_type_t verifier_type);
 
 /**
+ * @brief Set the HTTP options used when this context creates default RIM,
+ * OCSP, NRAS, and JWKS clients.
+ */
+nvat_rc_t nvat_attestation_ctx_set_default_http_options(nvat_attestation_ctx_t ctx, nvat_http_options_t http_options);
+
+/**
  * @brief Set the default NRAS url to use when using NVIDIA Remote Attestation Service as the remote verifier.
  * Note that this setting does **not** change the NRAS url of any verifiers
  * previously set in the context.
@@ -1361,6 +1378,7 @@ void nvat_attestation_ctx_free(nvat_attestation_ctx_t* attestation_ctx);
  * If using a remote rim store, the URL can be set using `NVAT_RIM_STORE_BASE_URL`
  * If using remote OCSP, the URL can be set using `NVAT_OCSP_BASE_URL`
  * If using remote verifier, the URL can be set using `NVAT_NRAS_BASE_URL`
+ * The CA certificate bundle can be set using `NVAT_CA_BUNDLE`
  *
  * @param ctx - The attestation context to use.
  * @param nonce - The nonce to use for the attestation. If NULL, a nonce will be generated.

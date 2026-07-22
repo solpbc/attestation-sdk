@@ -26,7 +26,10 @@
 namespace nvattest {
     void add_evidence_collection_options(CLI::App* app, EvidenceCollectionOptions& options);
     void add_evidence_policy_options(CLI::App* app, EvidencePolicyOptions& options);
-    void add_evidence_verification_options(CLI::App* app, EvidenceVerificationOptions& options);
+    void add_evidence_verification_options(
+        CLI::App* app,
+        EvidenceVerificationOptions& options,
+        const EvidenceCollectionOptions* collection_options = nullptr);
     void add_common_options(CLI::App& app, CommonOptions& options);
 
     void print_error_help(const CliLogger& logger, nvat_rc_t rc);
