@@ -30,6 +30,7 @@
 #include "nv_attestation/log.h"
 #include "nv_attestation/nv_types.h"
 #include "nv_attestation/utils.h"
+#include "nv_http_internal.h"
 
 namespace nvattestation {
 
@@ -84,7 +85,7 @@ namespace nvattestation {
 
     }
 
-    Error resolve_ca_bundle_path(
+    Error resolve_ca_bundle_path_with_overrides(
         const std::string& explicit_path,
         std::string& out_path,
         std::string& out_tier,
@@ -137,6 +138,23 @@ namespace nvattestation {
         return Error::InternalError;
     }
 
+    Error resolve_ca_bundle_path(
+        const std::string& explicit_path,
+        std::string& out_path,
+        std::string& out_tier) {
+        return resolve_ca_bundle_path_with_overrides(explicit_path, out_path, out_tier, nullptr, nullptr);
+    }
+
+    std::string ca_bundle_resolution_error_message(
+        const std::string& path,
+        const std::string& tier) {
+        if (path.empty()) {
+            return "No readable CA bundle was found; provide one with --ca-bundle or NVAT_CA_BUNDLE.";
+        }
+        return "CA bundle path '" + path + "' from " + tier
+            + " does not exist or is not readable; provide a readable file with --ca-bundle or NVAT_CA_BUNDLE.";
+    }
+
     Error NvHttpClient::create(NvHttpClient& out_client, std::string service_key, HttpOptions options) {
         out_client.m_service_key = std::move(service_key);
         out_client.m_options = options;
@@ -156,13 +174,9 @@ namespace nvattestation {
     Error NvHttpClient::do_request_as_string(const NvRequest& request, long& out_status, std::string& out_response) const {
         out_response.clear();
         if (m_options.ca_bundle_path_error != Error::Ok || m_options.ca_bundle_path.empty()) {
-            if (!m_options.ca_bundle_path.empty()) {
-                LOG_ERROR("CA bundle path '" << m_options.ca_bundle_path << "' from "
-                    << m_options.ca_bundle_path_tier
-                    << " does not exist or is not readable; provide a readable file with --ca-bundle or NVAT_CA_BUNDLE.");
-            } else {
-                LOG_ERROR("No readable CA bundle was found; provide one with --ca-bundle or NVAT_CA_BUNDLE.");
-            }
+            LOG_ERROR(ca_bundle_resolution_error_message(
+                m_options.ca_bundle_path,
+                m_options.ca_bundle_path_tier));
             return Error::InternalError;
         }
         /*

@@ -77,6 +77,7 @@ add_executable(nv-attestation-unit-tests
 
 target_include_directories(nv-attestation-unit-tests PRIVATE 
     nv-attestation
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${regorus_SOURCE_DIR}/bindings/ffi
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
