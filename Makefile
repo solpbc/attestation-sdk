@@ -8,8 +8,10 @@
 # dir has a stale toolchain cache — run `make clean` first.
 
 IMAGE := attestation-sdk-ci
-SDK_DIR := nv-attestation-sdk-cpp
-PODMAN_RUN := podman run --rm -v $(CURDIR):/src:Z -w /src $(IMAGE)
+CLI_DIR := nv-attestation-cli
+include sol/release/release.env
+GIT_COMMON_DIR := $(shell git rev-parse --path-format=absolute --git-common-dir)
+PODMAN_RUN := podman run --rm -v $(CURDIR):/src:Z -v $(GIT_COMMON_DIR):$(GIT_COMMON_DIR):ro,Z -w /src $(IMAGE)
 
 # The upstream test harness hard-refuses to run when NVAT_C_SDK_TEST_SERVICE_KEY is
 # empty; the offline subset never sends it, so any non-empty value satisfies setup.
@@ -21,22 +23,28 @@ TEST_SERVICE_KEY ?= sol-unit-dummy
 #   make ci TEST_SERVICE_KEY=<real-key> NETWORK_TESTS='^$$'
 NETWORK_TESTS := GpuVerifierTest|SwitchVerifierTest|GpuLocalVerifierTestCApi|SwitchLocalVerifierTestCApi|RimDocumentFixture|AttestationTest|GpuEvidenceTest|SwitchEvidenceTest|GpuRemoteVerifierTestCApi|SwitchRemoteVerifierTestCApi
 
-.PHONY: install hopper-install image ci test format clean
+.PHONY: install hopper-install image ci test release-linux-x86_64 format clean
 
 install: image
 
 hopper-install: image
 
 image:
-	podman build -t $(IMAGE) -f sol/ci/Containerfile sol/ci
+	podman build --build-arg CI_IMAGE=$(CI_IMAGE) -t $(IMAGE) -f sol/ci/Containerfile sol/ci
 
 ci: image
+	./sol/check-curl-handle-sites.sh
 	$(PODMAN_RUN) bash -ec '\
-	  cmake -S $(SDK_DIR) -B build -DUSE_SYSTEM_DEPS=OFF -DBUILD_TESTING=ON -DBUILD_SHARED_LIBS=ON && \
-	  cmake --build build -j$$(nproc) && \
-	  NVAT_C_SDK_TEST_SERVICE_KEY=$(TEST_SERVICE_KEY) ctest --test-dir build --output-on-failure -E "$(NETWORK_TESTS)"'
+		  rm -rf build && \
+		  cmake -S $(CLI_DIR) -B build -DUSE_SYSTEM_NVAT=OFF -DUSE_SYSTEM_DEPS=OFF -DBUILD_TESTING=ON -DBUILD_SHARED_LIBS=ON && \
+		  cmake --build build -j$$(nproc) && \
+		  NVAT_C_SDK_TEST_SERVICE_KEY=$(TEST_SERVICE_KEY) ctest --test-dir build --output-on-failure -L unit -E "$(NETWORK_TESTS)"'
 
 test: ci
+
+release-linux-x86_64: image
+	./sol/check-curl-handle-sites.sh
+	./sol/release/release-linux-x86_64.sh
 
 format:
 	@echo "no formatter wired yet (upstream C++ has no enforced format); see sol/ci"
