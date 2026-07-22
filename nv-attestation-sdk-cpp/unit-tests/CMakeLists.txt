@@ -77,6 +77,7 @@ add_executable(nv-attestation-unit-tests
 
 target_include_directories(nv-attestation-unit-tests PRIVATE 
     nv-attestation
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${regorus_SOURCE_DIR}/bindings/ffi
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -90,7 +91,7 @@ if (SANITIZER)
     target_link_options(nv-attestation-unit-tests PRIVATE -fsanitize=${SANITIZER} -fno-sanitize-recover=all)
 endif()
 
-FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
+FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa)
 FetchContent_MakeAvailable(json)
 
 # Fetch spdlog and fmt for header access only (nvat has them statically linked)

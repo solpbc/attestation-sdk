@@ -37,9 +37,7 @@ namespace nvattestation {
     Error resolve_ca_bundle_path(
         const std::string& explicit_path,
         std::string& out_path,
-        std::string& out_tier,
-        const std::string* compiled_default_override = nullptr,
-        const std::vector<std::string>* probe_paths_override = nullptr);
+        std::string& out_tier);
 
     enum NvHttpStatus {
         HTTP_STATUS_OK = 200,

@@ -10,6 +10,7 @@
 
 #include "gtest/gtest.h"
 #include "nv_attestation/nv_http.h"
+#include "nv_http_internal.h"
 
 using namespace nvattestation;
 
@@ -135,7 +136,7 @@ TEST_F(CaBundleResolutionTest, EmptyValuesAreSkippedAtEveryExplicitAndEnvironmen
     std::string tier;
     const std::string no_compiled_default;
     const std::vector<std::string> probes = {probe_file.path()};
-    EXPECT_EQ(resolve_ca_bundle_path("", path, tier, &no_compiled_default, &probes), Error::Ok);
+    EXPECT_EQ(resolve_ca_bundle_path_with_overrides("", path, tier, &no_compiled_default, &probes), Error::Ok);
     EXPECT_EQ(path, probe_file.path());
     EXPECT_EQ(tier, "system CA bundle probe");
 }
@@ -146,7 +147,7 @@ TEST_F(CaBundleResolutionTest, SystemProbeRunsWhenNoHigherTierResolves) {
     std::string tier;
     const std::string no_compiled_default;
     const std::vector<std::string> probes = {"/missing-probe", probe_file.path()};
-    EXPECT_EQ(resolve_ca_bundle_path("", path, tier, &no_compiled_default, &probes), Error::Ok);
+    EXPECT_EQ(resolve_ca_bundle_path_with_overrides("", path, tier, &no_compiled_default, &probes), Error::Ok);
     EXPECT_EQ(path, probe_file.path());
     EXPECT_EQ(tier, "system CA bundle probe");
 }
@@ -157,7 +158,7 @@ TEST_F(CaBundleResolutionTest, CompiledDefaultBeatsSystemProbe) {
     std::string path;
     std::string tier;
     const std::vector<std::string> probes = {probe_file.path()};
-    EXPECT_EQ(resolve_ca_bundle_path("", path, tier, &compiled_default.path(), &probes), Error::Ok);
+    EXPECT_EQ(resolve_ca_bundle_path_with_overrides("", path, tier, &compiled_default.path(), &probes), Error::Ok);
     EXPECT_EQ(path, compiled_default.path());
     EXPECT_EQ(tier, "libcurl compiled default");
 }
@@ -186,6 +187,11 @@ TEST_F(CaBundleResolutionTest, MissingAuthoritativePathsFailWithPathAndTier) {
         EXPECT_EQ(resolve_ca_bundle_path(explicit_path, path, tier), Error::InternalError);
         EXPECT_EQ(path, test_case.second);
         EXPECT_EQ(tier, test_case.first);
+        if (test_case.first == "--ca-bundle" || test_case.first == "NVAT_CA_BUNDLE") {
+            const std::string message = ca_bundle_resolution_error_message(path, tier);
+            EXPECT_NE(message.find(test_case.second), std::string::npos);
+            EXPECT_NE(message.find(test_case.first), std::string::npos);
+        }
     }
 }
 
@@ -194,9 +200,12 @@ TEST_F(CaBundleResolutionTest, MissingFullChainReturnsActionableError) {
     std::string tier;
     const std::string no_compiled_default;
     const std::vector<std::string> no_probes;
-    EXPECT_EQ(resolve_ca_bundle_path("", path, tier, &no_compiled_default, &no_probes), Error::InternalError);
+    EXPECT_EQ(resolve_ca_bundle_path_with_overrides("", path, tier, &no_compiled_default, &no_probes), Error::InternalError);
 
     EXPECT_TRUE(path.empty());
     EXPECT_NE(tier.find("--ca-bundle"), std::string::npos);
     EXPECT_NE(tier.find("NVAT_CA_BUNDLE"), std::string::npos);
+    const std::string message = ca_bundle_resolution_error_message(path, tier);
+    EXPECT_NE(message.find("--ca-bundle"), std::string::npos);
+    EXPECT_NE(message.find("NVAT_CA_BUNDLE"), std::string::npos);
 }

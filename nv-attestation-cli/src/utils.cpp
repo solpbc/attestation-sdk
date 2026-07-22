@@ -172,7 +172,7 @@ namespace nvattest {
             if (!options.ca_bundle_path.empty()) {
                 const char* nvat_ca_bundle = std::getenv("NVAT_CA_BUNDLE");
                 const std::string tier = nvat_ca_bundle != nullptr && options.ca_bundle_path == nvat_ca_bundle
-                    ? "NVAT_CA_BUNDLE"
+                    ? "--ca-bundle or NVAT_CA_BUNDLE"
                     : "--ca-bundle";
                 throw CLI::ValidationError(
                     "--ca-bundle",
