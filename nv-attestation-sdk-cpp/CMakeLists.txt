@@ -169,6 +169,7 @@ if(USE_SYSTEM_DEPS)
 
   # No-op targets for add_dependencies compatibility
   add_custom_target(openssl_external)
+  add_custom_target(libxml2_external)
   add_custom_target(xmlsec_external)
   add_custom_target(curl_external)
 
@@ -219,11 +220,35 @@ else()
     INTERFACE_LINK_LIBRARIES "OpenSSL::Crypto"
   )
 
-  # Build xmlsec 1.2.39 statically (depends on OpenSSL 3)
+  # Build libxml2 statically. xmlsec 1.2.x does not support libxml2 2.12+.
+  set(LIBXML2_INSTALL_DIR "${CMAKE_BINARY_DIR}/libxml2-install")
+
+  ExternalProject_Add(libxml2_external
+    URL https://download.gnome.org/sources/libxml2/2.11/libxml2-2.11.9.tar.xz
+    URL_HASH SHA256=780157a1efdb57188ec474dca87acaee67a3a839c2525b2214d318228451809f
+    CONFIGURE_COMMAND <SOURCE_DIR>/configure
+      --prefix=${LIBXML2_INSTALL_DIR}
+      --libdir=${LIBXML2_INSTALL_DIR}/lib
+      --disable-shared
+      --enable-static
+      --disable-maintainer-mode
+      --without-python
+      --without-zlib
+      --without-lzma
+      --without-http
+      --without-ftp
+      "CC=${_EP_CC}"
+      "CFLAGS=${_EP_CFLAGS}"
+    BUILD_COMMAND make -j${CMAKE_BUILD_PARALLEL_LEVEL}
+    INSTALL_COMMAND make install
+    BUILD_IN_SOURCE 1
+  )
+
+  # Build xmlsec 1.2.39 statically (depends on OpenSSL 3 and libxml2)
   set(XMLSEC_INSTALL_DIR "${CMAKE_BINARY_DIR}/xmlsec-install")
 
   ExternalProject_Add(xmlsec_external
-    DEPENDS openssl_external
+    DEPENDS openssl_external libxml2_external
     URL https://github.com/lsh123/xmlsec/releases/download/xmlsec-1_2_39/xmlsec1-1.2.39.tar.gz
     URL_HASH SHA256=15f2f55ea5968e578fcd24b3b427e553876c86c147dc7f03923e98fc2768a1fa
     CONFIGURE_COMMAND <SOURCE_DIR>/configure
@@ -232,6 +257,7 @@ else()
       --enable-static
       --disable-crypto-dl
       --with-openssl=${OPENSSL_INSTALL_DIR}
+      --with-libxml=${LIBXML2_INSTALL_DIR}
       --without-gnutls
       --without-nss
       --without-gcrypt
@@ -240,7 +266,7 @@ else()
       --disable-apps
       "CC=${_EP_CC}"
       "CFLAGS=${_EP_CFLAGS}"
-      "PKG_CONFIG_PATH=${OPENSSL_INSTALL_DIR}/lib/pkgconfig"
+      "PKG_CONFIG_PATH=${LIBXML2_INSTALL_DIR}/lib/pkgconfig:${OPENSSL_INSTALL_DIR}/lib/pkgconfig"
     BUILD_COMMAND make -j${CMAKE_BUILD_PARALLEL_LEVEL}
     INSTALL_COMMAND make install
     BUILD_IN_SOURCE 1
@@ -265,6 +291,9 @@ else()
       --without-libidn2
       --without-librtmp
       --without-libpsl
+      --with-ca-fallback
+      --without-ca-bundle
+      --without-ca-path
       --disable-ldap
       --disable-shared
       --enable-static
@@ -286,6 +315,9 @@ else()
     INTERFACE_LINK_LIBRARIES "OpenSSL::SSL;OpenSSL::Crypto;z;pthread"
   )
 
+  set(LIBXML2_INCLUDE_DIR "${LIBXML2_INSTALL_DIR}/include/libxml2" CACHE PATH "Vendored libxml2 include directory" FORCE)
+  set(LIBXML2_LIBRARY "${LIBXML2_INSTALL_DIR}/lib/libxml2.a" CACHE FILEPATH "Vendored libxml2 library" FORCE)
+  file(MAKE_DIRECTORY "${LIBXML2_INCLUDE_DIR}")
   find_package(LibXml2 REQUIRED)
   find_package(xmlsec REQUIRED)
 
@@ -411,7 +443,7 @@ target_link_libraries(nvat
 )
 
 # Ensure dependencies are built before nvat
-add_dependencies(nvat regorus_ffi spdlog fmt curl_external xmlsec_external openssl_external)
+add_dependencies(nvat regorus_ffi spdlog fmt curl_external libxml2_external xmlsec_external openssl_external)
 
 # todo (p0): remove cmake configuration helpers
 install(TARGETS nvat
