@@ -8,5 +8,5 @@ RUN dnf install -y \
     zlib-devel xz git patch perl-core \
   && dnf clean all
 
-RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.85.0
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.88.0
 ENV PATH="/root/.cargo/bin:${PATH}"
