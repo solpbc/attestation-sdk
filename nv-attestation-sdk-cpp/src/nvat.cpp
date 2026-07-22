@@ -251,6 +251,17 @@ void nvat_http_options_set_request_timeout_ms(nvat_http_options_t http_options, 
     NVAT_C_API_END_VOID
 }
 
+nvat_rc_t nvat_http_options_set_ca_bundle_path(nvat_http_options_t http_options, const char* path) {
+    NVAT_C_API_BEGIN
+    if (http_options == nullptr || path == nullptr) {
+        LOG_ERROR("http_options and path must not be null");
+        return NVAT_RC_BAD_ARGUMENT;
+    }
+    auto* cpp_options = nvat_http_options_to_cpp(http_options);
+    return nvat_rc_from_cpp(cpp_options->set_ca_bundle_path(path));
+    NVAT_C_API_END
+}
+
 // === Attestation ===
 
 nvat_rc_t nvat_relying_party_policy_create_rego_from_str(nvat_relying_party_policy_t* rp_policy, const char* rego_str) {
@@ -439,6 +450,18 @@ nvat_rc_t nvat_attestation_ctx_set_verifier_type(nvat_attestation_ctx_t ctx, nva
     }
     auto* cpp_ctx = nvat_attestation_ctx_to_cpp(ctx);
     cpp_ctx->set_verifier_type(cpp_verifier_type);
+    return NVAT_RC_OK;
+    NVAT_C_API_END
+}
+
+nvat_rc_t nvat_attestation_ctx_set_default_http_options(nvat_attestation_ctx_t ctx, nvat_http_options_t http_options) {
+    NVAT_C_API_BEGIN
+    if (ctx == nullptr || http_options == nullptr) {
+        LOG_ERROR("ctx and http_options must not be null");
+        return NVAT_RC_BAD_ARGUMENT;
+    }
+    auto* cpp_ctx = nvat_attestation_ctx_to_cpp(ctx);
+    cpp_ctx->set_default_http_options(*nvat_http_options_to_cpp(http_options));
     return NVAT_RC_OK;
     NVAT_C_API_END
 }
