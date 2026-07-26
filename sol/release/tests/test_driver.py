@@ -1,5 +1,6 @@
 import hashlib
 import io
+import os
 import subprocess
 import sys
 import tempfile
@@ -13,7 +14,8 @@ RELEASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_DIR))
 
 import rail  # noqa: E402
-from release_rail import archive, authority, driver, manifest  # noqa: E402
+from release_rail import archive, authority, driver, manifest, runtime  # noqa: E402
+from support import tools_for  # noqa: E402
 
 
 class SourceTest(unittest.TestCase):
@@ -198,10 +200,25 @@ class DriverPreflightTest(unittest.TestCase):
     def test_linux_build_exports_source_date_epoch(self):
         target = authority.load().target(authority.TARGET_IDS[0])
         root = Path("/source")
+        selection = runtime.Selection(
+            runtime.RUNTIME_NAMES[1], tools_for(target)[runtime.EVIDENCE_KEY]
+        )
         with mock.patch.object(driver, "_git", return_value="/git/common"):
             with mock.patch.object(driver, "_run") as run:
-                driver._build(root, target, root / "build/release", 1234567890)
+                driver._build(
+                    root,
+                    target,
+                    root / "build/release",
+                    1234567890,
+                    selection,
+                )
         arguments = run.call_args.args[0]
+        self.assertEqual(arguments[0], selection.name)
+        self.assertIn(runtime.LOCAL_IMAGE_TAG, arguments)
+        self.assertIn(runtime.render_mount(root, "/src", False), arguments)
+        self.assertIn(
+            runtime.render_mount("/git/common", "/git/common", True), arguments
+        )
         self.assertEqual(
             arguments[arguments.index("-e") + 1],
             "SOURCE_DATE_EPOCH=1234567890",
@@ -226,6 +243,189 @@ class DriverPreflightTest(unittest.TestCase):
                     output.getvalue(),
                     f"release rail error: {error}\n",
                 )
+
+
+class DriverRuntimeTest(unittest.TestCase):
+    def setUp(self):
+        self.data = authority.load()
+        self.target = self.data.target(authority.TARGET_IDS[0])
+        self.selection = runtime.Selection(
+            runtime.RUNTIME_NAMES[1],
+            tools_for(self.target)[runtime.EVIDENCE_KEY],
+        )
+
+    def test_tool_invoker_uses_selected_runtime_mount_platform_and_bare_tag(self):
+        result = mock.Mock(returncode=0, stdout="cmake version 1.2.3\n")
+        with mock.patch.object(driver.subprocess, "run", return_value=result) as run:
+            output = driver._tool_invoker(
+                Path("/source"), self.target, self.selection
+            )("cmake", "cmake")
+        self.assertEqual(output, result.stdout)
+        arguments = run.call_args.args[0]
+        self.assertEqual(arguments[0], self.selection.name)
+        self.assertIn(
+            f"--platform={self.target['container_platform']}", arguments
+        )
+        self.assertIn(runtime.LOCAL_IMAGE_TAG, arguments)
+        self.assertIn(
+            runtime.render_mount("/source", "/src", True), arguments
+        )
+
+    def test_linux_runtime_gates_keep_full_argument_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            owned = root / "owned"
+            extracted = root / "extracted"
+            owned.mkdir()
+            extracted.mkdir()
+            quartet = {
+                key: owned / name
+                for key, name in {
+                    "archive": "artifact.tar.xz",
+                    "archive-sha256": "artifact.tar.xz.sha256",
+                    "manifest": "artifact.manifest.json",
+                    "manifest-sha256": "artifact.manifest.json.sha256",
+                }.items()
+            }
+            with mock.patch.object(driver, "_run") as run:
+                driver._runtime_gates(
+                    root,
+                    owned,
+                    extracted,
+                    quartet,
+                    self.target,
+                    mock.Mock(),
+                    self.selection,
+                )
+        self.assertEqual(run.call_count, 2)
+        for call, image in zip(
+            run.call_args_list, self.target["gate_images"], strict=True
+        ):
+            arguments = call.args[0]
+            self.assertEqual(arguments[0], self.selection.name)
+            self.assertIn(
+                f"--platform={self.target['container_platform']}", arguments
+            )
+            self.assertIn(image, arguments)
+            for mount in (
+                runtime.render_mount(extracted, "/artifact", True),
+                runtime.render_mount(owned, "/release", True),
+                runtime.render_mount(
+                    root / "sol/release/runtime-gate.sh",
+                    "/gate/runtime-gate.sh",
+                    True,
+                ),
+                runtime.render_mount(owned / "layout.tsv", "/gate/layout.tsv", True),
+                runtime.render_mount(owned / "counts.tsv", "/gate/counts.tsv", True),
+            ):
+                self.assertIn(mount, arguments)
+            script_index = arguments.index("/gate/runtime-gate.sh")
+            self.assertEqual(
+                arguments[script_index + 1 :],
+                [
+                    "/artifact",
+                    "/release/artifact.tar.xz",
+                    "/release/artifact.tar.xz.sha256",
+                    "/release/artifact.manifest.json",
+                    "/release/artifact.manifest.json.sha256",
+                    "/gate/layout.tsv",
+                    "/gate/counts.tsv",
+                    "linux",
+                ],
+            )
+
+    def test_ownership_probe_accepts_mapping_rejects_uid_and_type_and_cleans(self):
+        actual_uid = os.getuid()
+        for state in ("matching", "uid", "type"):
+            with self.subTest(state=state):
+                captured = {}
+
+                def run(arguments, *, cwd, **_kwargs):
+                    captured["directory"] = cwd
+                    captured["arguments"] = arguments
+                    probe = cwd / "probe"
+                    if state == "type":
+                        probe.mkdir()
+                    else:
+                        probe.write_text("", encoding="utf-8")
+
+                getuid = (
+                    (lambda: actual_uid)
+                    if state != "uid"
+                    else (lambda: actual_uid + 1)
+                )
+                with mock.patch.object(driver, "_run", side_effect=run):
+                    with mock.patch.object(driver.os, "getuid", side_effect=getuid):
+                        if state == "matching":
+                            driver._ownership_probe(self.selection, self.target)
+                        else:
+                            with self.assertRaisesRegex(
+                                runtime.RuntimeSelectionError,
+                                "container ownership mapping failed",
+                            ):
+                                driver._ownership_probe(self.selection, self.target)
+                self.assertFalse(captured["directory"].exists())
+                self.assertEqual(captured["arguments"][0], self.selection.name)
+                self.assertIn(self.target["gate_images"][0], captured["arguments"])
+                self.assertIn(
+                    runtime.render_mount(
+                        captured["directory"], "/ownership", False
+                    ),
+                    captured["arguments"],
+                )
+
+    def test_ownership_failure_precedes_dist_creation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch.object(driver, "_git", return_value=""):
+                with mock.patch.object(runtime, "select", return_value=self.selection):
+                    with mock.patch.object(
+                        driver,
+                        "_ownership_probe",
+                        side_effect=runtime.RuntimeSelectionError("unsafe mapping"),
+                    ):
+                        with self.assertRaisesRegex(
+                            runtime.RuntimeSelectionError, "unsafe mapping"
+                        ):
+                            driver.release(root, self.target["id"])
+            self.assertFalse((root / "dist").exists())
+
+    def test_macos_paths_remain_native(self):
+        target = self.data.target(authority.TARGET_IDS[2])
+        root = Path("/source")
+        build = root / "build/release"
+        with mock.patch.object(driver, "_run") as run:
+            driver._build(root, target, build, 123, None)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[0].args[0][0], "cmake")
+        self.assertEqual(driver._tool_invoker(root, target, None), None)
+
+        with tempfile.TemporaryDirectory() as directory:
+            native_root = Path(directory)
+            owned = native_root / "owned"
+            extracted = native_root / "extracted"
+            owned.mkdir()
+            extracted.mkdir()
+            quartet = {
+                "archive": owned / "a.tar.xz",
+                "archive-sha256": owned / "a.tar.xz.sha256",
+                "manifest": owned / "a.manifest.json",
+                "manifest-sha256": owned / "a.manifest.json.sha256",
+            }
+            with mock.patch.object(driver, "_run") as native_run:
+                driver._runtime_gates(
+                    native_root,
+                    owned,
+                    extracted,
+                    quartet,
+                    target,
+                    mock.Mock(),
+                    None,
+                )
+            arguments = native_run.call_args.args[0]
+            self.assertEqual(arguments[0], str(native_root / "sol/release/runtime-gate.sh"))
+            self.assertEqual(len(arguments[1:]), 8)
+            self.assertEqual(arguments[-1], "macos")
 
 
 if __name__ == "__main__":

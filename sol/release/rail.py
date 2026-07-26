@@ -14,6 +14,7 @@ from release_rail import archive
 from release_rail import driver
 from release_rail import gate
 from release_rail import manifest
+from release_rail import runtime
 from release_rail import set_validator
 from release_rail import transaction
 
@@ -51,6 +52,10 @@ def _parser() -> argparse.ArgumentParser:
     get = actions.add_parser("get")
     get.add_argument("target", choices=authority.TARGET_IDS)
     get.add_argument("field")
+    runtime_parser = commands.add_parser("runtime")
+    runtime_actions = runtime_parser.add_subparsers(dest="action", required=True)
+    runtime_actions.add_parser("select")
+    runtime_actions.add_parser("image-tag")
     gate_parser = commands.add_parser("gate")
     gate_parser.add_argument("target", choices=authority.TARGET_IDS)
     gate_parser.add_argument("files", nargs="+", type=Path)
@@ -68,6 +73,12 @@ def main() -> int:
     try:
         if arguments.command == "authority":
             return _authority_command(arguments)
+        if arguments.command == "runtime":
+            if arguments.action == "select":
+                print(runtime.select().name)
+            else:
+                print(runtime.LOCAL_IMAGE_TAG)
+            return 0
         if arguments.command == "gate":
             data = authority.load()
             target = data.target(arguments.target)
@@ -111,6 +122,7 @@ def main() -> int:
         driver.SourceError,
         gate.GateError,
         manifest.ManifestError,
+        runtime.RuntimeSelectionError,
         set_validator.SetValidationError,
         transaction.TransactionError,
         KeyError,
