@@ -8,40 +8,50 @@ from unittest import mock
 RELEASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_DIR))
 
-from release_rail import authority, manifest  # noqa: E402
+from release_rail import authority, manifest, runtime  # noqa: E402
+from support import tools_for  # noqa: E402
 
 
 class ManifestTest(unittest.TestCase):
     def test_tool_evidence_has_exact_keys_and_normalized_versions(self):
         data = authority.load()
-        target = dict(data.target(authority.TARGET_IDS[0]))
-        outputs = iter(
+        shared = (
+            "cmake version 3.31.4\n",
+            "rustc 1.84.0 (abc 2025-01-01)\n",
+            "cargo 1.84.0 (def 2025-01-01)\n",
+            "tar (GNU tar) 1.35\n",
+            "xz (XZ Utils) 5.6.3\n",
+            "Python 3.13.1\n",
+        )
+        cases = (
             (
+                authority.TARGET_IDS[0],
                 "gcc (SUSE Linux) 14.2.1 20260101 /host/path\n",
-                "cmake version 3.31.4\n",
-                "rustc 1.84.0 (abc 2025-01-01)\n",
-                "cargo 1.84.0 (def 2025-01-01)\n",
-                "tar (GNU tar) 1.35\n",
-                "xz (XZ Utils) 5.6.3\n",
-                "Python 3.13.1\n",
-            )
+            ),
+            (
+                authority.TARGET_IDS[2],
+                "Apple clang version 16.0.0 /host/path\n",
+            ),
         )
-
-        def run(*_args, **_kwargs):
-            return mock.Mock(returncode=0, stdout=next(outputs))
-
-        with mock.patch("shutil.which", side_effect=lambda value: f"/tools/{value}"):
-            with mock.patch("pathlib.Path.is_file", return_value=True):
-                with mock.patch("subprocess.run", side_effect=run):
-                    tools = manifest.capture_build_tools(target, Path("/missing"))
-        self.assertEqual(
-            tuple(tools),
-            ("compiler", "cmake", "rustc", "cargo", "tar", "xz", "python"),
-        )
-        rendered = repr(tools)
-        self.assertNotIn("/host/path", rendered)
-        self.assertNotIn("2025-01-01", rendered)
-        self.assertNotIn("(abc", rendered)
+        for target_id, compiler in cases:
+            with self.subTest(target=target_id):
+                target = data.target(target_id)
+                outputs = iter((compiler, *shared))
+                fixture = tools_for(target)
+                tools = manifest.capture_build_tools(
+                    target,
+                    Path("/missing"),
+                    lambda _key, _command: next(outputs),
+                    runtime_evidence=fixture.get(runtime.EVIDENCE_KEY),
+                )
+                expected = manifest.BUILD_TOOL_KEYS + (
+                    (runtime.EVIDENCE_KEY,) if target["host_os"] == "Linux" else ()
+                )
+                self.assertEqual(tuple(tools), expected)
+                rendered = repr(tools)
+                self.assertNotIn("/host/path", rendered)
+                self.assertNotIn("2025-01-01", rendered)
+                self.assertNotIn("(abc", rendered)
 
     def test_cmake_configured_compiler_is_invoked(self):
         data = authority.load()
@@ -71,12 +81,15 @@ class ManifestTest(unittest.TestCase):
             with mock.patch("shutil.which", side_effect=lambda value: f"/tools/{value}"):
                 with mock.patch("pathlib.Path.is_file", return_value=True):
                     with mock.patch("subprocess.run", side_effect=run):
-                        manifest.capture_build_tools(target, build)
+                        manifest.capture_build_tools(
+                            target,
+                            build,
+                            runtime_evidence=tools_for(target)[runtime.EVIDENCE_KEY],
+                        )
             self.assertEqual(commands[0], str(compiler))
 
     def test_missing_and_unparseable_tools_fail_with_recovery(self):
-        data = authority.load()
-        target = data.target(authority.TARGET_IDS[0])
+        target = authority.load().target(authority.TARGET_IDS[0])
         with mock.patch("shutil.which", return_value=None):
             with self.assertRaisesRegex(
                 manifest.ManifestError, "missing required build tool.*--version"
@@ -92,6 +105,57 @@ class ManifestTest(unittest.TestCase):
                         manifest.ManifestError, "unparseable version output"
                     ):
                         manifest.capture_build_tools(target, Path("/missing"))
+
+    def test_runtime_evidence_is_target_specific_and_normalized(self):
+        data = authority.load()
+        linux = data.target(authority.TARGET_IDS[0])
+        macos = data.target(authority.TARGET_IDS[2])
+        evidence = tools_for(linux)[runtime.EVIDENCE_KEY]
+        runtime.validate_evidence(evidence)
+        malformed = (
+            {"client": {}},
+            {
+                **evidence,
+                "engine": {**evidence["engine"], "output": "unobserved"},
+            },
+        )
+        for value in malformed:
+            with self.assertRaises(runtime.RuntimeSelectionError):
+                runtime.validate_evidence(value)
+        incompatible = {
+            **evidence,
+            "engine": {**evidence["engine"], "architecture": "arm64"},
+        }
+        with self.assertRaisesRegex(
+            runtime.RuntimeSelectionError, "incompatible with target architecture"
+        ):
+            runtime.validate_evidence(incompatible, linux)
+
+        outputs = {
+            "compiler": "gcc 1.2.3",
+            "cmake": "cmake 1.2.3",
+            "rustc": "rustc 1.2.3",
+            "cargo": "cargo 1.2.3",
+            "tar": "GNU tar 1.2.3",
+            "xz": "xz 1.2.3",
+            "python": "Python 1.2.3",
+        }
+        with self.assertRaisesRegex(manifest.ManifestError, "missing"):
+            manifest.capture_build_tools(
+                linux,
+                Path("/missing"),
+                lambda key, _command: outputs[key],
+            )
+        with self.assertRaisesRegex(manifest.ManifestError, "not permitted"):
+            manifest.capture_build_tools(
+                macos,
+                Path("/missing"),
+                lambda key, _command: {
+                    **outputs,
+                    "compiler": "Apple clang 1.2.3",
+                }[key],
+                runtime_evidence=evidence,
+            )
 
 
 if __name__ == "__main__":

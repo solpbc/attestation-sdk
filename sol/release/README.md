@@ -21,6 +21,13 @@ make release TARGET=macos-arm64    # native arm64 macOS
 The target is mandatory. The driver rejects missing, misspelled, and
 host-incompatible targets before creating or changing `dist/`.
 
+Linux operation selects Podman first and falls back to Docker only when Podman
+is unavailable or unusable and Docker exposes a usable local Unix-socket
+engine. Preflight records normalized client/engine evidence and verifies with a
+temporary bind-mounted file that image-default root maps back to the invoking
+host UID. A rootful engine without a safe user-namespace mapping fails before
+release staging; configure rootless Docker or userns-remap, or install Podman.
+
 ### macOS prerequisites
 
 **First verify the library chain produced by CMake.** The `macos-arm64`
@@ -82,7 +89,8 @@ set validation, ShellCheck, and rejected-target preflight behavior. It also
 constructed a real native `linux-x86_64` release and passed its static gates,
 both bare-container runtime gates, a same-commit byte-for-byte rebuild, and the
 full C++ CI gate. It did not construct or run native `linux-aarch64` or
-`macos-arm64` code.
+`macos-arm64` code. Docker selection and execution are authored from official
+Docker documentation and were not exercised on this lode.
 
 ### Post-ship VPE native work
 
@@ -91,6 +99,11 @@ aarch64 Linux host and the macOS release on a native arm64 Mac. The macOS
 operator must verify the dylib chain above before anything else. Each native
 driver invocation runs the target's static gate and all runtime gates declared
 by authority before promotion.
+
+VPE must exercise the native Docker path directly on Spark, including
+Unix-socket selection, ownership mapping, image construction, the C++ CI gate,
+and a native release preflight. That Spark record is the Docker execution proof;
+the lode does not claim it.
 
 ### R2 publication
 
