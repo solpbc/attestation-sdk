@@ -126,6 +126,7 @@ class RuntimeTest(unittest.TestCase):
 
         for endpoint, succeeds in (
             ("ssh://remote", False),
+            ("unix://", False),
             ("unix:///run/user/1000/docker.sock", True),
         ):
             with self.subTest(docker_host=endpoint):

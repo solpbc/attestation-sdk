@@ -465,13 +465,31 @@ def _ownership_probe(selection: runtime.Selection, target: dict[str, Any]) -> No
                 f"container ownership probe failed for {selection.name} with "
                 f"{target['gate_images'][0]}: {error}"
             ) from error
-        actual = probe.stat().st_uid if probe.is_file() and not probe.is_symlink() else None
         expected = os.getuid()
+        recovery = (
+            "configure rootless Docker or userns-remap, or install Podman, then retry"
+        )
+        if probe.is_symlink():
+            raise runtime.RuntimeSelectionError(
+                "container ownership mapping failed: probe path is a symlink; "
+                f"{recovery}"
+            )
+        if not probe.exists():
+            raise runtime.RuntimeSelectionError(
+                "container ownership mapping failed: probe file is absent; "
+                f"{recovery}"
+            )
+        if not probe.is_file():
+            raise runtime.RuntimeSelectionError(
+                "container ownership mapping failed: probe path is not a regular file; "
+                f"{recovery}"
+            )
+        actual = probe.stat().st_uid
         if actual != expected:
             raise runtime.RuntimeSelectionError(
                 f"container ownership mapping failed: {selection.name} created the "
                 f"host probe as uid {actual}, expected invoking uid {expected}; "
-                "configure rootless Docker or userns-remap, or install Podman, then retry"
+                f"{recovery}"
             )
 
 
