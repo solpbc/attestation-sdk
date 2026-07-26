@@ -127,6 +127,19 @@ class AppleToolchainTest(unittest.TestCase):
                 with self.assertRaisesRegex(apple.AppleToolchainError, message):
                     apple.resolve(self.target, self.root, self.runner)
 
+    def test_authored_arm64_cache_rejects_non_arm64_host_observation(self):
+        self.write_build(CMAKE_OSX_ARCHITECTURES="arm64")
+        self.assertIn(
+            "CMAKE_OSX_ARCHITECTURES:STRING=arm64",
+            (self.root / "CMakeCache.txt").read_text(encoding="utf-8"),
+        )
+        with self.assertRaisesRegex(
+            authority.AuthorityError, "unsupported release host Darwin/x86_64"
+        ):
+            self.target = authority.load().require_compatible(
+                "macos-arm64", os_name="Darwin", machine="x86_64"
+            )
+
     def test_missing_cache_and_ambiguous_metadata_fail_closed(self):
         with self.assertRaisesRegex(apple.AppleToolchainError, "cannot read"):
             apple.resolve(self.target, self.root, self.runner)

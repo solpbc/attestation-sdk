@@ -5,13 +5,6 @@ function(nvat_resolve_apple_toolchain)
     return()
   endif()
 
-  if(NOT CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
-    message(FATAL_ERROR
-      "Apple architecture resolution failed: native processor "
-      "${CMAKE_HOST_SYSTEM_PROCESSOR} is not arm64; run the release on an "
-      "Apple Silicon host, then retry")
-  endif()
-
   if(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET OR
      CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL "" OR
      NOT CMAKE_OSX_DEPLOYMENT_TARGET MATCHES
@@ -113,4 +106,81 @@ function(nvat_resolve_apple_toolchain)
     "${CMAKE_COMMAND};-E;env;SDKROOT=${NVAT_APPLE_SDKROOT}"
     CACHE INTERNAL "Environment prefix for vendored Apple builds" FORCE)
   set_property(GLOBAL PROPERTY NVAT_APPLE_TOOLCHAIN_RESOLVED TRUE)
+endfunction()
+
+function(nvat_validate_apple_architecture)
+  if(NOT CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+    return()
+  endif()
+
+  get_property(_nvat_apple_architecture_validated GLOBAL
+    PROPERTY NVAT_APPLE_ARCHITECTURE_VALIDATED)
+  if(_nvat_apple_architecture_validated)
+    return()
+  endif()
+
+  if(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "")
+    message(FATAL_ERROR
+      "Apple architecture validation failed: CMAKE_HOST_SYSTEM_PROCESSOR is "
+      "empty after project(); run CMake natively on an Apple Silicon arm64 "
+      "host, then retry")
+  endif()
+  if(NOT CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    message(FATAL_ERROR
+      "Apple architecture validation failed: CMAKE_HOST_SYSTEM_PROCESSOR "
+      "'${CMAKE_HOST_SYSTEM_PROCESSOR}' is not arm64 or aarch64; run CMake "
+      "natively on an Apple Silicon arm64 host, then retry")
+  endif()
+
+  if(CMAKE_SYSTEM_PROCESSOR STREQUAL "")
+    message(FATAL_ERROR
+      "Apple architecture validation failed: CMAKE_SYSTEM_PROCESSOR is empty "
+      "after project(); remove the build directory and configure natively for "
+      "arm64 on Apple Silicon, then retry")
+  endif()
+  if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    message(FATAL_ERROR
+      "Apple architecture validation failed: CMAKE_SYSTEM_PROCESSOR "
+      "'${CMAKE_SYSTEM_PROCESSOR}' is not arm64 or aarch64; remove the build "
+      "directory and configure natively for arm64 on Apple Silicon, then retry")
+  endif()
+
+  if(CMAKE_OSX_ARCHITECTURES STREQUAL "")
+    message(FATAL_ERROR
+      "Apple architecture validation failed: CMAKE_OSX_ARCHITECTURES is empty "
+      "after project(); remove the build directory and configure natively with "
+      "-DCMAKE_OSX_ARCHITECTURES=arm64, then retry")
+  endif()
+  list(LENGTH CMAKE_OSX_ARCHITECTURES _nvat_apple_architecture_count)
+  if(NOT _nvat_apple_architecture_count EQUAL 1)
+    message(FATAL_ERROR
+      "Apple architecture validation failed: CMAKE_OSX_ARCHITECTURES "
+      "'${CMAKE_OSX_ARCHITECTURES}' contains "
+      "${_nvat_apple_architecture_count} entries, expected exactly one; remove "
+      "the build directory and configure natively with "
+      "-DCMAKE_OSX_ARCHITECTURES=arm64, then retry")
+  endif()
+  if(NOT CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+    message(FATAL_ERROR
+      "Apple architecture validation failed: CMAKE_OSX_ARCHITECTURES "
+      "'${CMAKE_OSX_ARCHITECTURES}' is not exactly arm64; remove the build "
+      "directory and configure natively with "
+      "-DCMAKE_OSX_ARCHITECTURES=arm64, then retry")
+  endif()
+
+  if(CMAKE_CROSSCOMPILING)
+    message(FATAL_ERROR
+      "Apple architecture validation failed: CMAKE_CROSSCOMPILING "
+      "'${CMAKE_CROSSCOMPILING}' is not false for a native build; remove the "
+      "build directory and configure natively on an Apple Silicon arm64 host, "
+      "then retry")
+  endif()
+  if(NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    message(FATAL_ERROR
+      "Apple architecture validation failed: CMAKE_SYSTEM_NAME "
+      "'${CMAKE_SYSTEM_NAME}' is not Darwin; remove the build directory and "
+      "configure natively on an Apple Silicon arm64 host, then retry")
+  endif()
+
+  set_property(GLOBAL PROPERTY NVAT_APPLE_ARCHITECTURE_VALIDATED TRUE)
 endfunction()
