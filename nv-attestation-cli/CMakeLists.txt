@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 3.11)
+include("${CMAKE_CURRENT_LIST_DIR}/../nv-attestation-sdk-cpp/cmake/nvat_apple_sdk.cmake")
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
-    include("${CMAKE_CURRENT_LIST_DIR}/../nv-attestation-sdk-cpp/cmake/nvat_apple_sdk.cmake")
     nvat_resolve_apple_toolchain()
 endif()
 project(nvattest VERSION 1.2.2)
+nvat_validate_apple_architecture()
 
 option(BUILD_TESTING "Build tests" OFF)
 option(USE_SYSTEM_NVAT "Compile and link to the system nvat library. If OFF, nvat will be built from source." OFF)

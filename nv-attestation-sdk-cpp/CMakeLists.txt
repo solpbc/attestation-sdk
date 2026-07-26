@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.11)
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/nvat_apple_sdk.cmake")
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
-  include("${CMAKE_CURRENT_LIST_DIR}/cmake/nvat_apple_sdk.cmake")
   get_property(_NVAT_APPLE_TOOLCHAIN_RESOLVED GLOBAL
     PROPERTY NVAT_APPLE_TOOLCHAIN_RESOLVED)
   if(NOT _NVAT_APPLE_TOOLCHAIN_RESOLVED)
@@ -8,6 +8,7 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
   endif()
 endif()
 project(nv-attestation VERSION 1.2.2)
+nvat_validate_apple_architecture()
 
 set(CMAKE_CXX_STANDARD 14 CACHE STRING
   "The C++ standard whose features are requested to build this target."

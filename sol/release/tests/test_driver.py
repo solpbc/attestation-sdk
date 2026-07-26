@@ -674,6 +674,7 @@ class DriverRuntimeTest(unittest.TestCase):
             "fmt compile failed",
             "OpenSSL configure failed",
             "OpenSSL build failed",
+            "Apple architecture validation failed",
         ):
             self.assert_release_failure_preserves_quartet(
                 target,

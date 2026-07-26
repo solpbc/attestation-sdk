@@ -38,6 +38,13 @@ the deployment floor are release authority in `targets.toml`.
 
 The active `xcrun --sdk macosx --show-sdk-path` result must be an absolute,
 existing SDK directory and the release must run natively on Apple Silicon.
+CMake resolves the SDK, deployment floor, and requested arm64 architecture
+before `project()` so compiler initialization receives the authored inputs.
+Immediately after `project()`, it validates CMake's measured host processor,
+configured system processor, single arm64 architecture, and native Darwin
+status. A failed post-project validation leaves CMake cache and compiler-ID
+diagnostics in the build directory; remove that failed build directory before
+retrying natively on Apple Silicon.
 The release driver passes the authority floor. A plain native CMake configure
 has no macOS deployment-target default and must provide it explicitly:
 
@@ -103,12 +110,17 @@ shared source/release identity.
 
 ### Authored and checked on the lode
 
-The lode exercises the Apple SDK resolution module with offline path fixtures,
-including spaces and shell metacharacters, plus synthesized ELF and Mach-O
-parsing/policy fixtures, authority validation, normalized Apple evidence
-validation, deterministic archive/sidecar fixtures for every authority target,
-schema-v2 manifests, transaction rollback injection, complete set validation,
-ShellCheck, and rejected-target preflight behavior. It also
+The lode exercises the real production pre-project Apple SDK-resolution
+prefixes in script mode and the real production post-project architecture
+validators through offline configure fixtures. Those fixtures prove
+resolution, compiler-boundary ordering, fail-closed comparisons, and
+process-local once-per-configure behavior; forcing Darwin variables on Linux
+does not prove that native macOS CMake populates them. It also exercises
+synthesized ELF and Mach-O parsing/policy fixtures, authority validation,
+normalized Apple evidence validation, deterministic archive/sidecar fixtures
+for every authority target, schema-v2 manifests, transaction rollback
+injection, complete set validation, ShellCheck, and rejected-target preflight
+behavior. It also
 constructed a real native `linux-x86_64` release and passed its static gates,
 both bare-container runtime gates, a same-commit byte-for-byte rebuild, and the
 full C++ CI gate. It did not construct or run native `linux-aarch64` or
@@ -124,6 +136,11 @@ flags, all four external projects' effective SDK/architecture/floor inputs,
 the genuine Apple toolchain evidence, and the final Mach-O architecture and
 deployment floor. Each native driver invocation runs the target's static gate
 and all runtime gates declared by authority before promotion.
+VPE must additionally record the genuine post-`project()` values of
+`CMAKE_HOST_SYSTEM_PROCESSOR`, `CMAKE_SYSTEM_PROCESSOR`,
+`CMAKE_OSX_ARCHITECTURES`, `CMAKE_CROSSCOMPILING`, and `CMAKE_SYSTEM_NAME`,
+and confirm that the architecture validator passes once in both standalone
+SDK and CLI-with-SDK native configures.
 
 VPE must exercise the native Docker path directly on Spark, including
 Unix-socket selection, ownership mapping, image construction, the C++ CI gate,
