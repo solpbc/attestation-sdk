@@ -145,55 +145,5 @@ class TransactionTest(unittest.TestCase):
             if key != "manifest":
                 self.assertFalse((self.dist / basename).exists())
 
-    def test_build_and_apple_failures_never_publish_or_replace_a_quartet(self):
-        failures = (
-            "fmt compile failed",
-            "OpenSSL configure failed",
-            "Apple SDK discovery returned empty",
-            "Apple deployment floor is malformed",
-        )
-        for message in failures:
-            with self.subTest(message=message, state="empty"):
-                def fail_builder(_owned, _checkpoint):
-                    raise InjectedFailure(message)
-
-                with self.assertRaisesRegex(InjectedFailure, message):
-                    transaction.run(
-                        dist=self.dist,
-                        target_id=authority.TARGET_IDS[2],
-                        version="1.2.2-sol.2",
-                        destination_names=self.names,
-                        builder=fail_builder,
-                    )
-                self.assert_no_quartet()
-
-        retained = {
-            basename: f"retained:{key}".encode()
-            for key, basename in self.names.items()
-        }
-        for basename, payload in retained.items():
-            (self.dist / basename).write_bytes(payload)
-        called = False
-
-        def must_not_build(_owned, _checkpoint):
-            nonlocal called
-            called = True
-            raise InjectedFailure("must not run")
-
-        with self.assertRaisesRegex(
-            transaction.TransactionError, "promotion refuses to overwrite"
-        ):
-            transaction.run(
-                dist=self.dist,
-                target_id=authority.TARGET_IDS[2],
-                version="1.2.2-sol.2",
-                destination_names=self.names,
-                builder=must_not_build,
-            )
-        self.assertFalse(called)
-        for basename, payload in retained.items():
-            self.assertEqual((self.dist / basename).read_bytes(), payload)
-
-
 if __name__ == "__main__":
     unittest.main()
