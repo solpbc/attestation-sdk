@@ -185,10 +185,17 @@ def validate(
         if target_id not in data.targets:
             raise SetValidationError(f"unknown target: {target_id}: {path}")
         by_target.setdefault(target_id, []).append(path)
+    missing_targets = [
+        target_id
+        for target_id in authority.TARGET_IDS
+        if not by_target.get(target_id)
+    ]
+    if missing_targets:
+        raise SetValidationError(
+            "; ".join(f"missing target: {target_id}" for target_id in missing_targets)
+        )
     for target_id in authority.TARGET_IDS:
         paths = by_target.get(target_id, [])
-        if not paths:
-            raise SetValidationError(f"missing target: {target_id}")
         if len(paths) > 1:
             raise SetValidationError(
                 f"duplicate target: {target_id}: {', '.join(map(str, paths))}"
