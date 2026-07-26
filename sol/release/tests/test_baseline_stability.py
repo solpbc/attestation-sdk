@@ -46,16 +46,33 @@ class BaselineStabilityTest(unittest.TestCase):
     def source(self, path):
         return (ROOT / path).read_bytes()
 
-    def dependency_sources(self, baseline):
-        values = {}
-        for absolute in generate_dependencies.dependency_inputs(ROOT):
-            path = absolute.relative_to(ROOT)
-            values[path] = (
+    def baseline_dependency_inputs(self):
+        listing = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", BASELINE],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        return generate_dependencies.select_dependency_inputs(
+            Path(path) for path in listing
+        )
+
+    def current_dependency_inputs(self):
+        return [
+            path.relative_to(ROOT)
+            for path in generate_dependencies.dependency_inputs(ROOT)
+        ]
+
+    def dependency_sources(self, paths, baseline):
+        return {
+            path: (
                 self.baseline(path).decode()
                 if baseline
                 else self.source(path).decode()
             )
-        return values
+            for path in paths
+        }
 
     def coordinate_records(self, sources):
         by_path = {}
@@ -118,14 +135,27 @@ class BaselineStabilityTest(unittest.TestCase):
         return projects[0]
 
     def test_all_dependency_coordinates_and_rust_wiring_are_unchanged(self):
-        baseline_sources = self.dependency_sources(True)
-        current_sources = self.dependency_sources(False)
+        baseline_inputs = self.baseline_dependency_inputs()
+        current_inputs = self.current_dependency_inputs()
+        baseline_sources = self.dependency_sources(baseline_inputs, True)
+        current_sources = self.dependency_sources(current_inputs, False)
+        all_inputs = set(baseline_inputs) | set(current_inputs)
         baseline_by_path = self.coordinate_records(baseline_sources)
         current_by_path = self.coordinate_records(current_sources)
-        self.assertEqual(current_by_path, baseline_by_path)
-        baseline_global = sum(baseline_by_path.values(), Counter())
-        current_global = sum(current_by_path.values(), Counter())
-        self.assertEqual(current_global, baseline_global)
+        baseline_complete = {
+            path: baseline_by_path.get(path, Counter()) for path in all_inputs
+        }
+        current_complete = {
+            path: current_by_path.get(path, Counter()) for path in all_inputs
+        }
+        with self.subTest(comparison="input inventory"):
+            self.assertEqual(current_inputs, baseline_inputs)
+        with self.subTest(comparison="coordinates by path"):
+            self.assertEqual(current_complete, baseline_complete)
+        with self.subTest(comparison="global coordinate multiset"):
+            baseline_global = sum(baseline_complete.values(), Counter())
+            current_global = sum(current_complete.values(), Counter())
+            self.assertEqual(current_global, baseline_global)
 
         for path in (SDK_CMAKE, CLI_CMAKE):
             with self.subTest(path=path):

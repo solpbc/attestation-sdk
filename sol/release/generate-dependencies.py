@@ -57,13 +57,33 @@ def classify(name, path):
     return "runtime"
 
 
-def dependency_inputs(root):
+def select_dependency_inputs(candidates):
+    candidates = {pathlib.Path(path) for path in candidates}
     inputs = sorted(
-        list((root / "nv-attestation-sdk-cpp").rglob("CMakeLists.txt"))
-        + list((root / "nv-attestation-cli").rglob("CMakeLists.txt"))
+        path
+        for path in candidates
+        if path.name == "CMakeLists.txt"
+        and path.parts
+        and path.parts[0]
+        in {"nv-attestation-sdk-cpp", "nv-attestation-cli"}
     )
-    inputs.append(root / "nv-attestation-sdk-cpp/cmake/nvat_fetch_gtest.cmake")
+    gtest = pathlib.Path("nv-attestation-sdk-cpp/cmake/nvat_fetch_gtest.cmake")
+    if gtest in candidates:
+        inputs.append(gtest)
     return inputs
+
+
+def dependency_inputs(root):
+    candidates = [
+        path.relative_to(root)
+        for path in (
+            list((root / "nv-attestation-sdk-cpp").rglob("CMakeLists.txt"))
+            + list((root / "nv-attestation-cli").rglob("CMakeLists.txt"))
+        )
+    ]
+    gtest = root / "nv-attestation-sdk-cpp/cmake/nvat_fetch_gtest.cmake"
+    candidates.append(gtest.relative_to(root))
+    return [root / path for path in select_dependency_inputs(candidates)]
 
 
 def parse(root):
