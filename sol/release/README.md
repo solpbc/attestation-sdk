@@ -131,11 +131,12 @@ Docker documentation and were not exercised on this lode.
 
 VPE must construct and smoke-test the aarch64 Linux release on a native
 aarch64 Linux host and the macOS release on a native arm64 Mac. The macOS
-operator must verify the dylib chain above, verbose fmt/nvat/nvattest warning
-flags, all four external projects' effective SDK/architecture/floor inputs,
-the genuine Apple toolchain evidence, and the final Mach-O architecture and
-deployment floor. Each native driver invocation runs the target's static gate
-and all runtime gates declared by authority before promotion.
+operator must verify the dylib chain above, verbose
+fmt/spdlog/nvat/nvattest warning flags, all four external projects' effective
+SDK/architecture/floor inputs, the genuine Apple toolchain evidence, and the
+final Mach-O architecture and deployment floor. Each native driver invocation
+runs the target's static gate and all runtime gates declared by authority
+before promotion.
 VPE must additionally record the genuine post-`project()` values of
 `CMAKE_HOST_SYSTEM_PROCESSOR`, `CMAKE_SYSTEM_PROCESSOR`,
 `CMAKE_OSX_ARCHITECTURES`, `CMAKE_CROSSCOMPILING`, and `CMAKE_SYSTEM_NAME`,

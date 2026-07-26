@@ -1,4 +1,5 @@
 import ast
+import importlib.util
 import re
 import subprocess
 import sys
@@ -14,15 +15,19 @@ sys.path.insert(0, str(RELEASE_DIR))
 from release_rail import authority, set_validator  # noqa: E402
 
 
-BASELINE = "31ff1fbe824dd2856ee217d2398176ef293f847b"
+GENERATOR_PATH = RELEASE_DIR / "generate-dependencies.py"
+GENERATOR_SPEC = importlib.util.spec_from_file_location(
+    "generate_dependencies", GENERATOR_PATH
+)
+generate_dependencies = importlib.util.module_from_spec(GENERATOR_SPEC)
+GENERATOR_SPEC.loader.exec_module(generate_dependencies)
+
+
+BASELINE = "46c10e4808965d6c065d62dece0071a8ff1624da"
 TARGETS = Path("sol/release/targets.toml")
 AUTHORITY = Path("sol/release/release_rail/authority.py")
 SDK_CMAKE = Path("nv-attestation-sdk-cpp/CMakeLists.txt")
 CLI_CMAKE = Path("nv-attestation-cli/CMakeLists.txt")
-PIN = re.compile(
-    r"(?:^|[\s(])(GIT_REPOSITORY|GIT_TAG|URL_HASH|URL)[ \t]+([^\s)]+)",
-    re.MULTILINE,
-)
 PROJECT = re.compile(
     r"^project\(([^\s)]+)\s+VERSION\s+([^\s)]+)\)$", re.MULTILINE
 )
@@ -41,6 +46,61 @@ class BaselineStabilityTest(unittest.TestCase):
     def source(self, path):
         return (ROOT / path).read_bytes()
 
+    def dependency_sources(self, baseline):
+        values = {}
+        for absolute in generate_dependencies.dependency_inputs(ROOT):
+            path = absolute.relative_to(ROOT)
+            values[path] = (
+                self.baseline(path).decode()
+                if baseline
+                else self.source(path).decode()
+            )
+        return values
+
+    def coordinate_records(self, sources):
+        by_path = {}
+        for path, text in sources.items():
+            records = []
+            for kind, tokens in generate_dependencies.declaration_records(
+                text, path
+            ):
+                name = tokens[0]
+                repository = generate_dependencies.value_after(
+                    tokens, "GIT_REPOSITORY"
+                )
+                tag = generate_dependencies.value_after(tokens, "GIT_TAG")
+                url = generate_dependencies.value_after(tokens, "URL")
+                url_hash = generate_dependencies.value_after(tokens, "URL_HASH")
+                if repository or tag:
+                    record = (kind, name, "git", repository, tag)
+                else:
+                    record = (kind, name, "archive", url, url_hash)
+                records.append(record)
+            by_path[path] = Counter(records)
+        return by_path
+
+    def call_tokens(self, source, command):
+        pattern = re.compile(rf"{re.escape(command)}\s*\(")
+        matches = list(pattern.finditer(source))
+        self.assertEqual(len(matches), 1)
+        start = matches[0].end()
+        depth = 1
+        index = start
+        quoted = False
+        while index < len(source) and depth:
+            character = source[index]
+            if character == '"':
+                quoted = not quoted
+            elif not quoted and character == "(":
+                depth += 1
+            elif not quoted and character == ")":
+                depth -= 1
+            index += 1
+        self.assertEqual(depth, 0)
+        return tuple(
+            re.findall(r'"[^"]*"|[^\s]+', source[start:index - 1])
+        )
+
     def test_targets_authority_is_byte_identical(self):
         self.assertEqual(self.source(TARGETS), self.baseline(TARGETS))
 
@@ -52,27 +112,37 @@ class BaselineStabilityTest(unittest.TestCase):
             values.append(ast.literal_eval(match.group(1)))
         self.assertEqual(values[0], values[1])
 
-    def cmake_values(self, source):
-        text = re.sub(r"#[^\n]*", "", source.decode())
-        pins = PIN.findall(text)
-        projects = PROJECT.findall(text)
+    def project_value(self, source):
+        projects = PROJECT.findall(source.decode())
         self.assertEqual(len(projects), 1)
-        return pins, projects[0]
+        return projects[0]
 
-    def test_cmake_versions_and_dependency_coordinates_are_unchanged(self):
+    def test_all_dependency_coordinates_and_rust_wiring_are_unchanged(self):
+        baseline_sources = self.dependency_sources(True)
+        current_sources = self.dependency_sources(False)
+        baseline_by_path = self.coordinate_records(baseline_sources)
+        current_by_path = self.coordinate_records(current_sources)
+        self.assertEqual(current_by_path, baseline_by_path)
+        baseline_global = sum(baseline_by_path.values(), Counter())
+        current_global = sum(current_by_path.values(), Counter())
+        self.assertEqual(current_global, baseline_global)
+
         for path in (SDK_CMAKE, CLI_CMAKE):
             with self.subTest(path=path):
-                baseline_pins, baseline_project = self.cmake_values(
-                    self.baseline(path)
+                self.assertEqual(
+                    self.project_value(self.source(path)),
+                    self.project_value(self.baseline(path)),
                 )
-                current_pins, current_project = self.cmake_values(self.source(path))
-                self.assertEqual(current_pins, baseline_pins)
-                self.assertEqual(Counter(field for field, _ in current_pins),
-                                 Counter(field for field, _ in baseline_pins))
-                self.assertEqual(current_project, baseline_project)
+
+        baseline_sdk = baseline_sources[SDK_CMAKE]
+        current_sdk = current_sources[SDK_CMAKE]
+        self.assertEqual(
+            self.call_tokens(current_sdk, "corrosion_import_crate"),
+            self.call_tokens(baseline_sdk, "corrosion_import_crate"),
+        )
 
     def test_release_version_matches_baseline_sdk_version(self):
-        _, (_, version) = self.cmake_values(self.baseline(SDK_CMAKE))
+        _, version = self.project_value(self.baseline(SDK_CMAKE))
         expected = f"{version}-sol.{authority.load().release['sol_revision']}"
         self.assertEqual(
             set_validator.release_version(ROOT, authority.load()), expected

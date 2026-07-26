@@ -35,6 +35,10 @@ add_executable(nvattest
     src/utils.cpp
     src/logging.cpp
 )
+if(CMAKE_VERSION VERSION_LESS 3.24.0 AND CMAKE_COMPILE_WARNING_AS_ERROR)
+    # Target-local so the policy does not flow into the SDK subdirectory added later.
+    target_compile_options(nvattest PRIVATE -Werror)
+endif()
 
 # Set full version with build timestamp if provided, otherwise use PROJECT_VERSION
 if(DEFINED BUILD_TIMESTAMP AND NOT BUILD_TIMESTAMP STREQUAL "")
