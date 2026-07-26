@@ -163,6 +163,7 @@ class WarningPolicyTest(unittest.TestCase):
             if commands
             and all(warnings_as_errors(command["arguments"]) for command in commands)
         }
+        self.assertEqual(first_party, set(EXPECTED_FIRST_PARTY_WARNINGS))
         self.assertEqual(third_party, declared_third_party)
         self.assertEqual(first_party, effective_werror)
         self.assertEqual(set(self.compile_sources), first_party | third_party)
@@ -253,7 +254,6 @@ class WarningPolicyTest(unittest.TestCase):
         ).group(0)
         calls = exemption_calls(sdk)
         self.assertTrue(calls)
-        legacy_state = {}
 
         def prepare(root):
             source = root / "legacy"
@@ -294,7 +294,6 @@ class WarningPolicyTest(unittest.TestCase):
             (source / "CMakeLists.txt").write_text(
                 "".join(parts), encoding="utf-8"
             )
-            legacy_state["source"] = source
             return [], ""
 
         # This proves production text, ordering, and fallback ownership. It does

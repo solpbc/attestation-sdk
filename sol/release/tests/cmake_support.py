@@ -90,7 +90,6 @@ def production_configure(
     *,
     fixture_prepare=None,
     build=None,
-    configure_arguments=(),
     query_codemodel=False,
     export_compile_commands=False,
 ):
@@ -126,7 +125,6 @@ def production_configure(
         arguments.append(f"-DCMAKE_PROJECT_INCLUDE={project_include}")
     if export_compile_commands:
         arguments.append("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON")
-    arguments.extend(configure_arguments)
     arguments.extend(extra_arguments)
 
     completed = subprocess.run(
