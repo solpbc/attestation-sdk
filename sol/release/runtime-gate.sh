@@ -12,10 +12,11 @@ launch_mode=${8:?launch mode is required}
 
 hash_file() {
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
+    hash_output=$(sha256sum "$1")
   else
-    shasum -a 256 "$1" | awk '{print $1}'
+    hash_output=$(shasum -a 256 "$1")
   fi
+  printf '%s\n' "${hash_output%% *}"
 }
 
 while IFS="$(printf '\t')" read -r kind path link_target; do
@@ -79,7 +80,7 @@ printf '%s\n' "$output" | grep -F "/nonexistent/path" >/dev/null
 printf '%s\n' "$output" | grep -F "from --ca-bundle" >/dev/null
 
 archive_hash=$(hash_file "$archive")
-archive_sidecar_hash=$(awk 'NR == 1 {print $1}' "$archive_sidecar")
+read -r archive_sidecar_hash _ < "$archive_sidecar"
 manifest_artifact_hash=$(sed -n \
   '/"artifact": {/,/}/ s/.*"sha256": "\([^"]*\)".*/\1/p' "$manifest")
 test -n "$manifest_artifact_hash"
@@ -87,7 +88,7 @@ test "$archive_hash" = "$archive_sidecar_hash"
 test "$archive_hash" = "$manifest_artifact_hash"
 
 manifest_hash=$(hash_file "$manifest")
-manifest_sidecar_hash=$(awk 'NR == 1 {print $1}' "$manifest_sidecar")
+read -r manifest_sidecar_hash _ < "$manifest_sidecar"
 test "$manifest_hash" = "$manifest_sidecar_hash"
 
 echo "runtime, layout, and quartet hash gates passed"
