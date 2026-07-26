@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.11)
-if(APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
-  set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Minimum macOS deployment target")
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+  include("${CMAKE_CURRENT_LIST_DIR}/cmake/nvat_apple_sdk.cmake")
+  nvat_resolve_apple_toolchain()
 endif()
 project(nv-attestation VERSION 1.2.2)
 
@@ -113,6 +114,12 @@ FetchContent_Declare(
   EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(fmt)
+if(NOT TARGET fmt)
+  message(FATAL_ERROR
+    "fmt warning-policy exemption failed: expected compiled target fmt after "
+    "FetchContent_MakeAvailable; verify the pinned fmt 10.2.1 target layout")
+endif()
+set_target_properties(fmt PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
 
 # Build spdlog as static library using our fetched fmt
 set(SPDLOG_INSTALL OFF CACHE BOOL "Don't install spdlog headers" FORCE)
@@ -181,6 +188,14 @@ else()
 
   set(_EP_CC "${CMAKE_C_COMPILER}")
   set(_EP_CFLAGS "${CMAKE_C_FLAGS} -fPIC")
+  set(_EP_OPENSSL_CFLAGS "${_EP_CFLAGS}")
+  set(_EP_AUTOCONF_CFLAGS "${_EP_CFLAGS}")
+  if(APPLE)
+    set(_EP_OPENSSL_CFLAGS
+      "${_EP_CFLAGS} -mmacosx-version-min=${NVAT_APPLE_DEPLOYMENT_TARGET}")
+    set(_EP_AUTOCONF_CFLAGS
+      "${_EP_OPENSSL_CFLAGS} -arch ${NVAT_APPLE_ARCHITECTURE}")
+  endif()
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
     set(_OPENSSL_CONFIGURE_TARGET linux-x86_64)
   elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
@@ -200,10 +215,10 @@ else()
   ExternalProject_Add(openssl_external
     URL https://github.com/openssl/openssl/releases/download/openssl-3.6.1/openssl-3.6.1.tar.gz
     URL_HASH SHA256=b1bfedcd5b289ff22aee87c9d600f515767ebf45f77168cb6d64f231f518a82e
-    CONFIGURE_COMMAND <SOURCE_DIR>/Configure
+    CONFIGURE_COMMAND ${NVAT_EP_ENV_COMMAND} <SOURCE_DIR>/Configure
       ${_OPENSSL_CONFIGURE_TARGET}
       "CC=${_EP_CC}"
-      "CFLAGS=${_EP_CFLAGS}"
+      "CFLAGS=${_EP_OPENSSL_CFLAGS}"
       --prefix=${OPENSSL_INSTALL_DIR}
       --openssldir=${OPENSSL_INSTALL_DIR}
       --libdir=lib
@@ -214,8 +229,8 @@ else()
       no-legacy     # Disable legacy provider (MD2, RC4, DES, etc.)
       no-engine     # Disable deprecated ENGINE API — unused with static linking
       no-dtls       # Disable DTLS — SDK uses TLS only, not UDP-based DTLS
-    BUILD_COMMAND make -j${CMAKE_BUILD_PARALLEL_LEVEL}
-    INSTALL_COMMAND make install_sw install_ssldirs
+    BUILD_COMMAND ${NVAT_EP_ENV_COMMAND} make -j${CMAKE_BUILD_PARALLEL_LEVEL}
+    INSTALL_COMMAND ${NVAT_EP_ENV_COMMAND} make install_sw install_ssldirs
     BUILD_IN_SOURCE 1
   )
 
@@ -246,7 +261,7 @@ else()
   ExternalProject_Add(libxml2_external
     URL https://download.gnome.org/sources/libxml2/2.11/libxml2-2.11.9.tar.xz
     URL_HASH SHA256=780157a1efdb57188ec474dca87acaee67a3a839c2525b2214d318228451809f
-    CONFIGURE_COMMAND <SOURCE_DIR>/configure
+    CONFIGURE_COMMAND ${NVAT_EP_ENV_COMMAND} <SOURCE_DIR>/configure
       --prefix=${LIBXML2_INSTALL_DIR}
       --libdir=${LIBXML2_INSTALL_DIR}/lib
       --disable-shared
@@ -258,9 +273,9 @@ else()
       --without-http
       --without-ftp
       "CC=${_EP_CC}"
-      "CFLAGS=${_EP_CFLAGS}"
-    BUILD_COMMAND make -j${CMAKE_BUILD_PARALLEL_LEVEL}
-    INSTALL_COMMAND make install
+      "CFLAGS=${_EP_AUTOCONF_CFLAGS}"
+    BUILD_COMMAND ${NVAT_EP_ENV_COMMAND} make -j${CMAKE_BUILD_PARALLEL_LEVEL}
+    INSTALL_COMMAND ${NVAT_EP_ENV_COMMAND} make install
     BUILD_IN_SOURCE 1
   )
 
@@ -271,7 +286,7 @@ else()
     DEPENDS openssl_external libxml2_external
     URL https://github.com/lsh123/xmlsec/releases/download/xmlsec-1_2_39/xmlsec1-1.2.39.tar.gz
     URL_HASH SHA256=15f2f55ea5968e578fcd24b3b427e553876c86c147dc7f03923e98fc2768a1fa
-    CONFIGURE_COMMAND <SOURCE_DIR>/configure
+    CONFIGURE_COMMAND ${NVAT_EP_ENV_COMMAND} <SOURCE_DIR>/configure
       --prefix=${XMLSEC_INSTALL_DIR}
       --disable-shared
       --enable-static
@@ -285,10 +300,10 @@ else()
       --disable-docs
       --disable-apps
       "CC=${_EP_CC}"
-      "CFLAGS=${_EP_CFLAGS}"
+      "CFLAGS=${_EP_AUTOCONF_CFLAGS}"
       "PKG_CONFIG_PATH=${LIBXML2_INSTALL_DIR}/lib/pkgconfig:${OPENSSL_INSTALL_DIR}/lib/pkgconfig"
-    BUILD_COMMAND make -j${CMAKE_BUILD_PARALLEL_LEVEL}
-    INSTALL_COMMAND make install
+    BUILD_COMMAND ${NVAT_EP_ENV_COMMAND} make -j${CMAKE_BUILD_PARALLEL_LEVEL}
+    INSTALL_COMMAND ${NVAT_EP_ENV_COMMAND} make install
     BUILD_IN_SOURCE 1
   )
 
@@ -301,7 +316,7 @@ else()
     DEPENDS openssl_external
     URL https://github.com/curl/curl/releases/download/curl-7_88_1/curl-7.88.1.tar.gz
     URL_HASH SHA256=cdb38b72e36bc5d33d5b8810f8018ece1baa29a8f215b4495e495ded82bbf3c7
-    CONFIGURE_COMMAND <SOURCE_DIR>/configure
+    CONFIGURE_COMMAND ${NVAT_EP_ENV_COMMAND} <SOURCE_DIR>/configure
       --prefix=${CURL_INSTALL_DIR}
       --with-openssl=${OPENSSL_INSTALL_DIR}
       --without-libssh2
@@ -318,10 +333,10 @@ else()
       --disable-shared
       --enable-static
       "CC=${_EP_CC}"
-      "CFLAGS=${_EP_CFLAGS}"
+      "CFLAGS=${_EP_AUTOCONF_CFLAGS}"
       "PKG_CONFIG_PATH=${OPENSSL_INSTALL_DIR}/lib/pkgconfig"
-    BUILD_COMMAND make -j${CMAKE_BUILD_PARALLEL_LEVEL}
-    INSTALL_COMMAND make install
+    BUILD_COMMAND ${NVAT_EP_ENV_COMMAND} make -j${CMAKE_BUILD_PARALLEL_LEVEL}
+    INSTALL_COMMAND ${NVAT_EP_ENV_COMMAND} make install
     BUILD_IN_SOURCE 1
   )
 
