@@ -1,4 +1,7 @@
 cmake_minimum_required(VERSION 3.11)
+if(APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Minimum macOS deployment target")
+endif()
 project(nv-attestation VERSION 1.2.2)
 
 set(CMAKE_CXX_STANDARD 14 CACHE STRING
@@ -178,6 +181,18 @@ else()
 
   set(_EP_CC "${CMAKE_C_COMPILER}")
   set(_EP_CFLAGS "${CMAKE_C_FLAGS} -fPIC")
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
+    set(_OPENSSL_CONFIGURE_TARGET linux-x86_64)
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    set(_OPENSSL_CONFIGURE_TARGET linux-aarch64)
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+    set(_OPENSSL_CONFIGURE_TARGET darwin64-arm64-cc)
+  else()
+    message(FATAL_ERROR
+      "Unsupported native OpenSSL build target: "
+      "${CMAKE_SYSTEM_NAME}/${CMAKE_SYSTEM_PROCESSOR}; supported targets are "
+      "Linux/x86_64, Linux/aarch64, and Darwin/arm64")
+  endif()
 
   # Build OpenSSL statically — RHEL8 ships 1.1.1 but the code needs 3.x APIs
   set(OPENSSL_INSTALL_DIR "${CMAKE_BINARY_DIR}/openssl-install")
@@ -186,6 +201,7 @@ else()
     URL https://github.com/openssl/openssl/releases/download/openssl-3.6.1/openssl-3.6.1.tar.gz
     URL_HASH SHA256=b1bfedcd5b289ff22aee87c9d600f515767ebf45f77168cb6d64f231f518a82e
     CONFIGURE_COMMAND <SOURCE_DIR>/Configure
+      ${_OPENSSL_CONFIGURE_TARGET}
       "CC=${_EP_CC}"
       "CFLAGS=${_EP_CFLAGS}"
       --prefix=${OPENSSL_INSTALL_DIR}
@@ -207,10 +223,14 @@ else()
   file(MAKE_DIRECTORY "${OPENSSL_INCLUDE_DIR}")
 
   add_library(OpenSSL::Crypto STATIC IMPORTED)
+  set(_OPENSSL_SYSTEM_LIBRARIES pthread)
+  if(NOT APPLE)
+    list(PREPEND _OPENSSL_SYSTEM_LIBRARIES dl)
+  endif()
   set_target_properties(OpenSSL::Crypto PROPERTIES
     IMPORTED_LOCATION "${OPENSSL_INSTALL_DIR}/lib/libcrypto.a"
     INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}"
-    INTERFACE_LINK_LIBRARIES "dl;pthread"
+    INTERFACE_LINK_LIBRARIES "${_OPENSSL_SYSTEM_LIBRARIES}"
   )
 
   add_library(OpenSSL::SSL STATIC IMPORTED)
@@ -383,6 +403,13 @@ set_target_properties(nvat PROPERTIES
   VERSION "${PROJECT_VERSION}"
   SOVERSION "${NV_ATTESTATION_SOVERSION}"
 )
+if(APPLE)
+  # Authored and statically gated, but not natively verified on the Linux lode.
+  set_target_properties(nvat PROPERTIES
+    INSTALL_NAME_DIR "@rpath"
+    BUILD_WITH_INSTALL_NAME_DIR TRUE
+  )
+endif()
 
 target_include_directories(nvat
   PUBLIC

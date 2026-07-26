@@ -1,4 +1,7 @@
 cmake_minimum_required(VERSION 3.11)
+if(APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Minimum macOS deployment target")
+endif()
 project(nvattest VERSION 1.2.2)
 
 option(BUILD_TESTING "Build tests" OFF)
@@ -100,6 +103,13 @@ target_link_libraries(nvattest PRIVATE
     nlohmann_json::nlohmann_json
     CLI11::CLI11
 )
+if(APPLE)
+    # Authored and statically gated, but not natively verified on the Linux lode.
+    set_target_properties(nvattest PROPERTIES
+        INSTALL_RPATH "@executable_path/../lib"
+        BUILD_WITH_INSTALL_RPATH TRUE
+    )
+endif()
 
 # spdlog/fmt headers needed for compilation (nvat has them statically linked, no need to link again)
 target_include_directories(nvattest PRIVATE
