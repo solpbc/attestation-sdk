@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.11)
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
   include("${CMAKE_CURRENT_LIST_DIR}/cmake/nvat_apple_sdk.cmake")
-  nvat_resolve_apple_toolchain()
+  get_property(_NVAT_APPLE_TOOLCHAIN_RESOLVED GLOBAL
+    PROPERTY NVAT_APPLE_TOOLCHAIN_RESOLVED)
+  if(NOT _NVAT_APPLE_TOOLCHAIN_RESOLVED)
+    nvat_resolve_apple_toolchain()
+  endif()
 endif()
 project(nv-attestation VERSION 1.2.2)
 

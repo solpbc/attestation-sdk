@@ -89,6 +89,13 @@ function(nvat_resolve_apple_toolchain)
       "${_nvat_sdk_path}; install the selected macOS SDK or pass its absolute "
       "directory, then retry")
   endif()
+  if(_nvat_sdk_path MATCHES "[;\\\\]")
+    message(FATAL_ERROR
+      "Apple SDK resolution failed: resolved path contains a semicolon or "
+      "backslash: ${_nvat_sdk_path}; pass "
+      "-DCMAKE_OSX_SYSROOT=<absolute SDK directory> without those characters, "
+      "then retry")
+  endif()
 
   set(CMAKE_OSX_SYSROOT "${_nvat_sdk_path}" CACHE PATH
     "Resolved macOS SDK directory" FORCE)
@@ -103,6 +110,7 @@ function(nvat_resolve_apple_toolchain)
   set(NVAT_APPLE_DEPLOYMENT_TARGET "${CMAKE_OSX_DEPLOYMENT_TARGET}"
     CACHE INTERNAL "Resolved macOS deployment target" FORCE)
   set(NVAT_EP_ENV_COMMAND
-    "${CMAKE_COMMAND};-E;env;SDKROOT=${_nvat_sdk_path}"
+    "${CMAKE_COMMAND};-E;env;SDKROOT=${NVAT_APPLE_SDKROOT}"
     CACHE INTERNAL "Environment prefix for vendored Apple builds" FORCE)
+  set_property(GLOBAL PROPERTY NVAT_APPLE_TOOLCHAIN_RESOLVED TRUE)
 endfunction()
