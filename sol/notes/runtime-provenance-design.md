@@ -122,7 +122,7 @@ stage re-resolves or silently switches engines.
 ## D2 — Normalized engine evidence and rejection
 
 **Decision.** Linux manifests add an eighth `build_tools` member under the
-single exported key `runtime.CONTAINER_RUNTIME_EVIDENCE_KEY`, whose value has
+single exported key `runtime.EVIDENCE_KEY`, whose value has
 this exact normalized shape:
 
 ```text
@@ -199,12 +199,13 @@ not continue with an empty runtime value. This status propagation is the
 required property of the Makefile approach.
 
 The Makefile's `IMAGE` value is removed as an independent truth source and
-resolved through `runtime image-tag`. `PODMAN_RUN` is renamed
-`CONTAINER_RUN`. In each applicable recipe, `RUNTIME` and `IMAGE` are resolved
-once into shell variables through the two accessors, then `CONTAINER_RUN` is
-assembled from those values. `image:` resolves the authority build image as it
-does today and invokes `"$RUNTIME" build` with the shared bare tag.
-`ci-container` invokes `"$RUNTIME" run`.
+resolved through `runtime image-tag`. The former one-use `PODMAN_RUN` helper is
+removed rather than retained under a runtime-neutral name: `ci-container`
+inlines its container command so its dependency on the recipe-local `RUNTIME`
+and `IMAGE` shell variables is visible. In each applicable recipe those values
+are resolved once through the two accessors. `image:` resolves the authority
+build image as it does today and invokes `"$RUNTIME" build` with the shared bare
+tag; `ci-container` invokes `"$RUNTIME" run`.
 
 The Makefile CI container keeps its literal
 `-v $(CURDIR):/src:Z` and
@@ -448,31 +449,26 @@ No test asserts a literal engine name, evidence key, runtime order, local image
 tag, or mount suffix that duplicates `runtime.py`; tests import constants or
 compare behavior derived from them, following commit `d278793`.
 
-### Later validation plan
+### Native validation performed
 
-Validation must operate only in this Hopper worktree,
-`/home/jer/.hopper/worktrees/ogw2thlw`. Its current `build/` and `dist/` are
-absent. The operator's main checkout at
-`/home/jer/projects/attestation-sdk` is out of scope: do not read, write, move,
-or use anything under its `dist/`.
+Validation operated only in this Hopper worktree,
+`/home/jer/.hopper/worktrees/ogw2thlw`; the operator's main checkout at
+`/home/jer/projects/attestation-sdk` remained out of scope. The worktree built
+its own local image and fresh native linux-x86_64 quartet rather than treating
+the pre-existing host-global Podman image as build proof.
 
-After implementation and unit-level checks, first build a fresh native
-linux-x86_64 quartet into this worktree's own `dist/`. Move that complete
-quartet only by the rail's documented retained-quartet procedure into a
-worktree-local retained directory when a rerun needs clear destinations.
-Then exercise every construction and promotion fault injection against a newly
-constructed worktree-local quartet, asserting that the pre-existing retained
-quartet remains byte-for-byte present and that no partial new quartet remains.
-This produces AC5's real-data proof without borrowing the main checkout's
-artifacts.
+With that promoted quartet retained at its authoritative destinations, a real
+wrong-product preflight failure left all four files byte-identical and created
+no new staging residue. A post-staging failure was deliberately not fabricated:
+overwrite refusal runs before construction when the retained quartet occupies
+its destinations, while construction failures intentionally preserve owned
+staging for diagnosis. Transaction checkpoint tests continue to provide the
+exhaustive construction and promotion rollback proof.
 
-Use the host-global existing Podman image only as an input to this worktree's
-run; do not treat its existence as proof that this worktree has built an image.
-Record the two requested retained-library embedded-path string counts only from
-the freshly built/extracted worktree artifact. Docker selection, Docker
-identity fields, endpoint behavior, ownership mapping, mounts, platform
-selection, and the same native rail path require a later Docker-host run and
-remain unverified here.
+The retained-library embedded-path counts came only from the freshly built
+worktree artifact extracted to scratch. Docker selection, identity fields,
+endpoint behavior, ownership mapping, mounts, platform selection, and the same
+native rail path require a later Docker-host run and remain unverified here.
 
 ## Authored, not natively verified
 

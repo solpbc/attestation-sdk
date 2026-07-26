@@ -1,3 +1,4 @@
+import contextlib
 import hashlib
 import io
 import os
@@ -254,6 +255,124 @@ class DriverRuntimeTest(unittest.TestCase):
             tools_for(self.target)[runtime.EVIDENCE_KEY],
         )
 
+    def test_release_threads_one_selection_through_every_container_command(self):
+        distinctive = runtime.Selection(
+            "selected-runtime",
+            tools_for(self.target)[runtime.EVIDENCE_KEY],
+        )
+        container_commands = []
+
+        def run(arguments, *, cwd, **_kwargs):
+            if len(arguments) > 1 and arguments[1] == "run":
+                container_commands.append(arguments)
+                if "/ownership" in " ".join(map(str, arguments)):
+                    (cwd / "probe").write_text("", encoding="utf-8")
+            if "sol/release/generate-dependencies.py" in arguments:
+                Path(arguments[arguments.index("--json") + 1]).write_text(
+                    "[]", encoding="utf-8"
+                )
+            return mock.Mock(returncode=0, stdout="")
+
+        def tool_run(arguments, **_kwargs):
+            container_commands.append(arguments)
+            return mock.Mock(returncode=0, stdout=f"{arguments[-2]} 1.2.3\n")
+
+        def capture(target, _build_dir, invoker=None, *, runtime_evidence=None):
+            for key, command in zip(
+                ("compiler", "cmake", "rustc", "cargo"),
+                target["required_tools"],
+            ):
+                invoker(key, command)
+            self.assertEqual(runtime_evidence, distinctive.evidence)
+            return tools_for(target)
+
+        def construct(_stage, destination, *_arguments):
+            destination.write_bytes(b"archive")
+
+        def transaction_run(*, builder, **_kwargs):
+            with tempfile.TemporaryDirectory() as directory:
+                owned = Path(directory)
+                return builder(owned, mock.Mock())
+
+        source = {
+            "commit": "1" * 40,
+            "upstream_base_commit": self.data.release["upstream_base_commit"],
+            "sol_series_commits": [{"commit": "1" * 40, "subject": "test"}],
+            "source_date_epoch": 1_700_000_000,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with contextlib.ExitStack() as patches:
+                patches.enter_context(
+                    mock.patch.object(
+                        driver,
+                        "_git",
+                        side_effect=lambda _root, *args: (
+                            "" if args[0] == "status" else "/git/common"
+                        ),
+                    )
+                )
+                select = patches.enter_context(
+                    mock.patch.object(runtime, "select", return_value=distinctive)
+                )
+                patches.enter_context(mock.patch.object(driver, "_run", side_effect=run))
+                patches.enter_context(
+                    mock.patch.object(
+                        driver.subprocess, "run", side_effect=tool_run
+                    )
+                )
+                patches.enter_context(
+                    mock.patch.object(
+                        manifest, "capture_build_tools", side_effect=capture
+                    )
+                )
+                patches.enter_context(
+                    mock.patch.object(
+                        driver, "_version", return_value="1.2.2-sol.2"
+                    )
+                )
+                patches.enter_context(
+                    mock.patch.object(driver, "_source", return_value=source)
+                )
+                patches.enter_context(mock.patch.object(driver, "_acquire_ca"))
+                patches.enter_context(mock.patch.object(driver, "_stage"))
+                patches.enter_context(mock.patch.object(driver, "_validate_layout"))
+                patches.enter_context(mock.patch.object(driver, "_gate_binaries"))
+                patches.enter_context(
+                    mock.patch.object(
+                        archive, "construct", side_effect=construct
+                    )
+                )
+                patches.enter_context(mock.patch.object(archive, "write_sidecar"))
+                patches.enter_context(
+                    mock.patch.object(manifest, "build", return_value={})
+                )
+                patches.enter_context(mock.patch.object(manifest, "write"))
+                patches.enter_context(
+                    mock.patch.object(
+                        driver.transaction, "run", side_effect=transaction_run
+                    )
+                )
+                driver.release(root, self.target["id"])
+
+        select.assert_called_once_with(self.target)
+        self.assertEqual(len(container_commands), 12)
+        for arguments in container_commands:
+            self.assertEqual(arguments[0], distinctive.name)
+            self.assertIn(
+                f"--platform={self.target['container_platform']}", arguments
+            )
+        local_image_commands = [
+            arguments
+            for arguments in container_commands
+            if runtime.LOCAL_IMAGE_TAG in arguments
+        ]
+        self.assertEqual(len(local_image_commands), 9)
+        for image in self.target["gate_images"]:
+            self.assertTrue(
+                any(image in arguments for arguments in container_commands)
+            )
+
     def test_tool_invoker_uses_selected_runtime_mount_platform_and_bare_tag(self):
         result = mock.Mock(returncode=0, stdout="cmake version 1.2.3\n")
         with mock.patch.object(driver.subprocess, "run", return_value=result) as run:
@@ -336,7 +455,13 @@ class DriverRuntimeTest(unittest.TestCase):
 
     def test_ownership_probe_accepts_mapping_rejects_uid_and_type_and_cleans(self):
         actual_uid = os.getuid()
-        for state in ("matching", "uid", "type"):
+        for state, message in (
+            ("matching", None),
+            ("uid", "created the host probe as uid"),
+            ("missing", "probe file is absent"),
+            ("symlink", "probe path is a symlink"),
+            ("type", "probe path is not a regular file"),
+        ):
             with self.subTest(state=state):
                 captured = {}
 
@@ -344,7 +469,11 @@ class DriverRuntimeTest(unittest.TestCase):
                     captured["directory"] = cwd
                     captured["arguments"] = arguments
                     probe = cwd / "probe"
-                    if state == "type":
+                    if state == "missing":
+                        pass
+                    elif state == "symlink":
+                        probe.symlink_to("missing")
+                    elif state == "type":
                         probe.mkdir()
                     else:
                         probe.write_text("", encoding="utf-8")
@@ -361,7 +490,7 @@ class DriverRuntimeTest(unittest.TestCase):
                         else:
                             with self.assertRaisesRegex(
                                 runtime.RuntimeSelectionError,
-                                "container ownership mapping failed",
+                                message,
                             ):
                                 driver._ownership_probe(self.selection, self.target)
                 self.assertFalse(captured["directory"].exists())

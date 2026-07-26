@@ -9,7 +9,6 @@
 
 CLI_DIR := nv-attestation-cli
 GIT_COMMON_DIR := $(shell git rev-parse --path-format=absolute --git-common-dir)
-CONTAINER_RUN := "$$RUNTIME" run --rm -v $(CURDIR):/src:Z -v $(GIT_COMMON_DIR):$(GIT_COMMON_DIR):ro,Z -w /src "$$IMAGE"
 RAIL := python3 sol/release/rail.py
 HOST_TARGET ?=
 
@@ -47,7 +46,8 @@ ci-container: image
 	./sol/check-curl-handle-sites.sh
 	RUNTIME="$$( $(RAIL) runtime select )" && \
 		IMAGE="$$( $(RAIL) runtime image-tag )" && \
-		$(CONTAINER_RUN) bash -ec '\
+		"$$RUNTIME" run --rm -v $(CURDIR):/src:Z \
+			-v $(GIT_COMMON_DIR):$(GIT_COMMON_DIR):ro,Z -w /src "$$IMAGE" bash -ec '\
 		  rm -rf build && \
 		  cmake -S $(CLI_DIR) -B build -DUSE_SYSTEM_NVAT=OFF -DUSE_SYSTEM_DEPS=OFF -DBUILD_TESTING=ON -DBUILD_SHARED_LIBS=ON && \
 		  cmake --build build -j$$(nproc) && \

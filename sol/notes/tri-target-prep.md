@@ -985,7 +985,8 @@ $ find dist/.staging -printf '%y %m %u %g %s %T@ %p %l\n' | sort | sha256sum
 1ad82e035777381c8cd7e5abfd0870b6dec988703411f96835f89debf8e04f28  -
 ```
 
-The real wrong-product container-call path then failed in preflight:
+The real wrong-product identity probe then failed in preflight, before any
+container was run:
 
 ```text
 $ hop check env PATH=/tmp/nvattest-wrong-runtime:/usr/local/bin:/usr/bin:/bin make release TARGET=linux-x86_64
@@ -1045,3 +1046,74 @@ $ ls -l "$scratch_dir/lib/libnvat.so.1.2.2"
 
 Docker was not executed on this lode. Docker and native aarch64 proof remain
 VPE-direct work on Spark; no simulated Docker output is recorded here.
+
+After the audit follow-up settled, the release-rail gate passed:
+
+```text
+$ hop check make rail-test
+hop check: `make rail-test` exited 0
+python3 -m unittest discover -s sol/release/tests -p 'test_*.py'
+.......................................................................
+----------------------------------------------------------------------
+Ran 71 tests in 0.370s
+
+OK
+shellcheck $(find sol -type f -name '*.sh' -print | sort)
+```
+
+The canonical C++ gate then passed once on the same settled tree:
+
+```text
+$ hop check make ci
+hop check: `make ci` exited 0, showing last 50 of 3117 lines
+      Start 51: NvHttpClient.PostAsStruct
+51/68 Test #51: NvHttpClient.PostAsStruct .......................................................***Not Run (Disabled)   0.00 sec
+      Start 52: CaBundleResolutionTest.ExplicitPathBeatsEveryEnvironmentTier
+52/68 Test #52: CaBundleResolutionTest.ExplicitPathBeatsEveryEnvironmentTier ....................   Passed    0.01 sec
+      Start 53: CaBundleResolutionTest.NvatEnvironmentBeatsLowerEnvironmentTiers
+53/68 Test #53: CaBundleResolutionTest.NvatEnvironmentBeatsLowerEnvironmentTiers ................   Passed    0.01 sec
+      Start 54: CaBundleResolutionTest.CurlEnvironmentBeatsSslEnvironment
+54/68 Test #54: CaBundleResolutionTest.CurlEnvironmentBeatsSslEnvironment .......................   Passed    0.01 sec
+      Start 55: CaBundleResolutionTest.SslEnvironmentBeatsDefaultsAndProbes
+55/68 Test #55: CaBundleResolutionTest.SslEnvironmentBeatsDefaultsAndProbes .....................   Passed    0.01 sec
+      Start 56: CaBundleResolutionTest.EmptyValuesAreSkippedAtEveryExplicitAndEnvironmentTier
+56/68 Test #56: CaBundleResolutionTest.EmptyValuesAreSkippedAtEveryExplicitAndEnvironmentTier ...   Passed    0.01 sec
+      Start 57: CaBundleResolutionTest.SystemProbeRunsWhenNoHigherTierResolves
+57/68 Test #57: CaBundleResolutionTest.SystemProbeRunsWhenNoHigherTierResolves ..................   Passed    0.01 sec
+      Start 58: CaBundleResolutionTest.CompiledDefaultBeatsSystemProbe
+58/68 Test #58: CaBundleResolutionTest.CompiledDefaultBeatsSystemProbe ..........................   Passed    0.01 sec
+      Start 59: CaBundleResolutionTest.MissingAuthoritativePathsFailWithPathAndTier
+59/68 Test #59: CaBundleResolutionTest.MissingAuthoritativePathsFailWithPathAndTier .............   Passed    0.01 sec
+      Start 60: CaBundleResolutionTest.MissingFullChainReturnsActionableError
+60/68 Test #60: CaBundleResolutionTest.MissingFullChainReturnsActionableError ...................   Passed    0.01 sec
+      Start 61: DetachedEatTest.CreateAndVerify
+61/68 Test #61: DetachedEatTest.CreateAndVerify .................................................   Passed    0.01 sec
+      Start 62: DetachedEatTest.CreateReturnsOverallResultFalse
+62/68 Test #62: DetachedEatTest.CreateReturnsOverallResultFalse .................................   Passed    0.01 sec
+      Start 63: NvCacheTest.TestPutAndGet
+63/68 Test #63: NvCacheTest.TestPutAndGet .......................................................   Passed    0.01 sec
+      Start 64: NvCacheTest.TestPutKeyExists
+64/68 Test #64: NvCacheTest.TestPutKeyExists ....................................................   Passed    0.01 sec
+      Start 65: NvCacheTest.TestPutAndRemove
+65/68 Test #65: NvCacheTest.TestPutAndRemove ....................................................   Passed    0.01 sec
+      Start 66: NvCacheTest.TestLruEviction
+66/68 Test #66: NvCacheTest.TestLruEviction .....................................................   Passed    0.01 sec
+      Start 67: NvCacheTest.MultipleThreads
+67/68 Test #67: NvCacheTest.MultipleThreads .....................................................   Passed    0.11 sec
+      Start 68: NvShortExpiryCacheTest.TestExpiryEviction
+68/68 Test #68: NvShortExpiryCacheTest.TestExpiryEviction .......................................   Passed    3.01 sec
+
+100% tests passed out of 64
+
+Label Time Summary:
+unit    =   3.95 sec*proc (68 tests)
+
+Total Test time (real) =   3.96 sec
+
+The following tests did not run:
+	 48 - NvHttpClient.GetAsString (Disabled)
+	 49 - NvHttpClient.GetAsStruct (Disabled)
+	 50 - NvHttpClient.PostAsString (Disabled)
+	 51 - NvHttpClient.PostAsStruct (Disabled)
+make[1]: Leaving directory '/home/jer/.hopper/worktrees/ogw2thlw'
+```
