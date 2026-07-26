@@ -633,9 +633,9 @@ release rail error: promotion refuses to overwrite: /home/jer/.hopper/worktrees/
 ```
 
 The first real double construction then exposed OpenSSL's wall-clock
-`built on:` string in `libnvat.so`. Commit `9af3828` exports the commit epoch as
-`SOURCE_DATE_EPOCH`. Two subsequent full builds from that identical clean
-commit produced:
+`built on:` string in `libnvat.so`. The source-epoch fix exports the commit
+epoch as `SOURCE_DATE_EPOCH`. Two subsequent full builds from that identical
+clean commit produced:
 
 ```text
 $ sha256sum run-a/* run-b/*

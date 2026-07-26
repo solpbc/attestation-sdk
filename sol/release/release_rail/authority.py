@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 
+# Deliberate fail-closed schema guard: load() rejects both unknown authority
+# targets and any member of this tuple missing from the authority.
 TARGET_IDS = ("linux-x86_64", "linux-aarch64", "macos-arm64")
 _ROOT_KEYS = {"release", "targets"}
 _RELEASE_KEYS = {
@@ -19,7 +21,6 @@ _RELEASE_KEYS = {
     "ca_bundle_sha256",
     "archive_xz_preset",
     "archive_xz_threads",
-    "source_date_epoch_source",
 }
 _TARGET_KEYS = {
     "id",
@@ -165,16 +166,18 @@ def load(path: Path | None = None) -> Authority:
         for image in images:
             if image != "none" and not _DIGEST_REFERENCE.fullmatch(image):
                 raise AuthorityError(f"{target_id}: image is not digest-pinned: {image}")
-        if target_id == "macos-arm64":
+        if target["binary_format"] == "macho64-le":
             if target["build_image"] != "none" or target["gate_images"]:
-                raise AuthorityError("macos-arm64 must not declare container images")
+                raise AuthorityError(
+                    f"{target_id}: Mach-O targets must not declare container images"
+                )
             for field in ("macho_install_id", "macho_rpath"):
                 if not isinstance(target.get(field), str) or not target[field]:
-                    raise AuthorityError(f"macos-arm64 requires {field}")
+                    raise AuthorityError(f"{target_id}: Mach-O target requires {field}")
         elif target["build_image"] == "none" or len(target["gate_images"]) != 2:
             raise AuthorityError(f"{target_id}: Linux targets need one build and two gate images")
         elif "macho_install_id" in target or "macho_rpath" in target:
-            raise AuthorityError(f"{target_id}: Mach-O policy is only valid for macos-arm64")
+            raise AuthorityError(f"{target_id}: Mach-O policy requires binary_format=macho64-le")
         if not isinstance(target["members"], list) or not target["members"]:
             raise AuthorityError(f"{target_id}: members must be a nonempty list")
         for member in target["members"]:
@@ -201,8 +204,14 @@ def read_allowlist(authority: Authority, target: dict[str, Any]) -> list[str]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError as error:
-        raise AuthorityError(f"cannot read runtime allowlist {path}: {error}") from error
+        raise AuthorityError(
+            f"cannot read runtime allowlist {path}: {error}; restore it with "
+            f"`git restore -- {path}` and retry"
+        ) from error
     values = [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
     if not values:
-        raise AuthorityError(f"runtime allowlist is empty: {path}")
+        raise AuthorityError(
+            f"runtime allowlist is empty: {path}; restore the reviewed file with "
+            f"`git restore -- {path}` and retry"
+        )
     return values
