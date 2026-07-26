@@ -1,0 +1,18 @@
+# The SDK deliberately links system zlib. It is baseline on every target distro.
+libz.so.1
+# regorus's Rust staticlib introduces libutil, a glibc compatibility DSO. The
+# bare-container runtime gates, not this allowlist entry, prove that it resolves.
+libutil.so.1
+# Internal SDK DSO shipped beside nvattest in this archive.
+libnvat.so.1
+# Compiler and glibc runtime dependencies.
+libgcc_s.so.1
+librt.so.1
+libpthread.so.0
+libdl.so.2
+libstdc++.so.6
+libm.so.6
+libc.so.6
+ld-linux-aarch64.so.1
+# Every unlisted dependency fails. In particular, libcurl, libssl, libcrypto,
+# libxml2, and liblzma are forbidden because release builds vendor them.
