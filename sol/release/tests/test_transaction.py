@@ -100,7 +100,8 @@ class TransactionTest(unittest.TestCase):
         for basename in self.names.values():
             (self.dist / basename).write_text("previous", encoding="utf-8")
         with self.assertRaisesRegex(
-            transaction.TransactionError, "promotion refuses to overwrite"
+            transaction.TransactionError,
+            "promotion refuses to overwrite: .*move it aside with `mv .*`, then retry",
         ):
             transaction.run(
                 dist=self.dist,

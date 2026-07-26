@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 import shutil
 from pathlib import Path
 from typing import Callable
@@ -40,7 +41,12 @@ def run(
     }
     for destination in destinations.values():
         if destination.exists() or destination.is_symlink():
-            raise TransactionError(f"promotion refuses to overwrite: {destination}")
+            retained = destination.with_name(f"{destination.name}.retained")
+            command = shlex.join(["mv", str(destination), str(retained)])
+            raise TransactionError(
+                f"promotion refuses to overwrite: {destination}; "
+                f"move it aside with `{command}`, then retry"
+            )
 
     def checkpoint(name: str) -> None:
         if fault_hook is not None:

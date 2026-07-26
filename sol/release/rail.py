@@ -13,6 +13,7 @@ from release_rail import authority
 from release_rail import driver
 from release_rail import gate
 from release_rail import set_validator
+from release_rail import transaction
 
 
 def _authority_command(arguments: argparse.Namespace) -> int:
@@ -97,6 +98,7 @@ def main() -> int:
         driver.ReleaseError,
         gate.GateError,
         set_validator.SetValidationError,
+        transaction.TransactionError,
         KeyError,
         ValueError,
     ) as error:
