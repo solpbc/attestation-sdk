@@ -152,8 +152,11 @@ The module produces and caches:
 
 The normalized CMake OSX values are cache entries so the compiler setup,
 first-party target generation, external-project construction, and later
-manifest cross-check all see the same values. Re-entry requires the existing
-normalized outputs to agree; it does not resolve twice.
+manifest cross-check all see the same values. The CLI resolves first; successful
+resolution sets a global CMake property that the SDK uses as its sentinel. The
+SDK invokes the resolver only for a standalone SDK configure, so production
+does not resolve twice and a caller-provided cache variable cannot bypass
+validation.
 
 Sysroot resolution is one rule with explicit-input precedence:
 
@@ -168,6 +171,10 @@ Honoring an explicit absolute path or selector is not a fallback ladder. It is
 the caller's selected input. Each case has one resolution route and hard-fails;
 the module never tries an implicit compiler default after a bad explicit value
 or failed xcrun. The final value must be an absolute existing directory.
+Because CMake list syntax uses semicolons and backslashes as structural
+characters, the final normalized path must contain neither. Both explicit and
+xcrun-resolved paths fail closed on those characters instead of relying on
+fragile multi-layer escaping.
 
 Architecture behaves similarly: absent architecture is normalized to
 `arm64`; an explicit value is accepted only if it is the single value
@@ -218,7 +225,9 @@ the `SDKROOT=<absolute path>` element as one argument to `cmake -E env`; the
 environment value then reaches Make and compiler processes without being
 expanded as recipe text. A sysroot path containing spaces is therefore never
 re-split by Perl, Make, or a recipe shell. This directly addresses prep Q3
-without quote-escaping gymnastics.
+without quote-escaping gymnastics. The resolver rejects semicolons and
+backslashes before constructing this list, so the normalized SDK value cannot
+change its argv structure.
 
 ### D2.3 — Deliver the floor in CFLAGS and arm64 once per build system
 
@@ -304,6 +313,7 @@ The planned failures are:
 | empty xcrun output | same | `Apple SDK resolution failed: xcrun returned an empty path for SDK <selector>; verify xcrun --sdk <selector> --show-sdk-path, then retry` |
 | non-absolute resolved sysroot | same | `Apple SDK resolution failed: resolved path is not absolute: <value>; pass -DCMAKE_OSX_SYSROOT=<absolute SDK directory> or repair xcrun, then retry` |
 | nonexistent/non-directory sysroot | same | `Apple SDK resolution failed: SDK directory does not exist: <value>; install the selected macOS SDK or pass its absolute directory, then retry` |
+| sysroot contains `;` or `\` | same | `Apple SDK resolution failed: resolved path contains a semicolon or backslash: <value>; pass -DCMAKE_OSX_SYSROOT=<absolute SDK directory> without those characters, then retry` |
 | empty/malformed deployment floor | CMake configure | `Apple deployment target resolution failed: expected a dotted numeric version, got <repr>; pass -DCMAKE_OSX_DEPLOYMENT_TARGET=<version>, then retry` |
 | explicit architecture is not exactly arm64 | CMake configure | `Apple architecture resolution failed: expected exactly arm64, got <value>; configure a native arm64 build with -DCMAKE_OSX_ARCHITECTURES=arm64, then retry` |
 | system processor is not arm64/aarch64 | CMake configure | `Apple architecture resolution failed: native processor <value> is not arm64; run the release on an Apple Silicon host, then retry` |
@@ -312,7 +322,7 @@ The planned failures are:
 | driver floor differs from normalized CMake cache | final evidence capture | `Apple toolchain evidence failed: configured deployment target <actual> differs from authority <expected>; remove build/release and retry make release TARGET=macos-arm64` |
 | cache sysroot missing, non-absolute, nonexistent, or differs from resolved SDK path | final evidence capture | `Apple toolchain evidence failed: configured SDK sysroot <detail>; remove build/release, select a valid Xcode SDK, and retry make release TARGET=macos-arm64` |
 | cache architecture absent or not exactly arm64 | final evidence capture | `Apple toolchain evidence failed: configured architecture <detail>; remove build/release and retry with a native arm64 toolchain` |
-| compiler metadata file absent/ambiguous/malformed | final evidence capture | `Apple toolchain evidence failed: cannot read one configured C++ compiler record under <build>/CMakeFiles; remove the build directory and rerun the native configure` |
+| compiler metadata file absent/ambiguous/malformed or unreadable | final evidence capture | `Apple toolchain evidence failed: cannot read <compiler record/detail>; remove the build directory and rerun the native configure` |
 | AppleClang executable output disagrees with configured ID/version | final evidence capture | `Apple toolchain evidence failed: compiler observation <observed> differs from CMake <configured>; select one Xcode toolchain, remove build/release, and retry` |
 | xcodebuild/xcrun fields malformed or disagree | rail preflight or final capture | `Apple toolchain evidence failed: <field> observations disagree: <detail>; run xcode-select -p and xcrun --sdk macosx --show-sdk-path, correct the active Xcode selection, then retry` |
 | evidence has missing, extra, reordered, stale, or malformed fields | manifest capture/validation | `macos-arm64: Apple toolchain evidence has invalid <section/field>; rebuild the manifest with make release TARGET=macos-arm64` |
@@ -519,6 +529,8 @@ The tests create:
   absolute sysroot;
 * a spaced SDK path containing shell metacharacters, proving the complete
   `SDKROOT=<value>` remains inert data in one list/argv element;
+* existing SDK paths containing a semicolon or backslash, proving both are
+  rejected before construction of the command list;
 * failures for missing/nonzero/empty xcrun, relative result, nonexistent
   result, malformed/empty floor, wrong/multi architecture, and processor
   disagreement;
@@ -549,7 +561,10 @@ matching behavior rather than a broad regex) to assert:
 * no spdlog exemption or global warning-policy lowering is introduced.
 * neither top-level CMakeLists contains an `if(APPLE)` guard before its first
   `project()`; both use the exact native-host guard and invoke the real module
-  before compiler identification.
+  before compiler identification;
+* the SDK uses the resolver's global success property as a sentinel so
+  CLI-driven configuration does not invoke the resolver twice or trust an
+  unvalidated caller-provided cache variable.
 
 This seam catches a future declaration dropping a shared output. It cannot
 prove upstream configure/Make interpretation, generated Darwin argv, or
@@ -642,9 +657,10 @@ Existing seams are sufficient:
   `after-build` (`driver.py:548-550`). A companion transaction test injects
   `after-build` through `transaction.CONSTRUCTION_CHECKPOINTS`
   (`transaction.py:15-22`) to preserve the general checkpoint proof.
-* empty/nonexistent/inconsistent SDK discovery and missing/malformed floor are
-  injected through `apple.preflight`, `apple.resolve`, or the driver `_run`
-  seam. Preflight failures happen before transaction construction; final
+* empty/nonexistent SDK discovery is injected through `apple.preflight`;
+  inconsistent configured SDK evidence is injected through `apple.resolve`;
+  missing/malformed floors use the real `_target_values` trigger reached from
+  preflight. Preflight failures happen before transaction construction; final
   cache inconsistencies happen during the builder before manifest creation.
 * `test_transaction.py` retains exhaustive construction and promotion fault
   injection through `fault_hook` (`test_transaction.py:57-79`).

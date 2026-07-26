@@ -2,6 +2,7 @@ import contextlib
 import hashlib
 import io
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -15,7 +16,15 @@ RELEASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_DIR))
 
 import rail  # noqa: E402
-from release_rail import apple, archive, authority, driver, manifest, runtime  # noqa: E402
+from release_rail import (  # noqa: E402
+    apple,
+    archive,
+    authority,
+    driver,
+    manifest,
+    runtime,
+    set_validator,
+)
 from support import tools_for  # noqa: E402
 
 
@@ -255,6 +264,46 @@ class DriverRuntimeTest(unittest.TestCase):
             runtime.RUNTIME_NAMES[1],
             tools_for(self.target)[runtime.EVIDENCE_KEY],
         )
+
+    def assert_release_failure_preserves_quartet(
+        self, target, error, patches, *, expected_call=None
+    ):
+        version = "1.2.2-sol.2"
+        names = set_validator.quartet_names(target, version)
+        for retained in (False, True):
+            with self.subTest(retained=retained, error=str(error)):
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    dist = root / "dist"
+                    if retained:
+                        dist.mkdir()
+                        original = {
+                            name: f"retained:{key}".encode()
+                            for key, name in names.items()
+                        }
+                        for name, payload in original.items():
+                            (dist / name).write_bytes(payload)
+                    with contextlib.ExitStack() as stack:
+                        calls = patches(stack, root, target, error)
+                        if retained:
+                            with self.assertRaisesRegex(
+                                driver.transaction.TransactionError,
+                                "promotion refuses to overwrite",
+                            ):
+                                driver.release(root, target["id"])
+                        else:
+                            with self.assertRaisesRegex(
+                                type(error), re.escape(str(error))
+                            ):
+                                driver.release(root, target["id"])
+                    if expected_call is not None:
+                        self.assertEqual(calls[expected_call].called, not retained)
+                    if retained:
+                        for name, payload in original.items():
+                            self.assertEqual((dist / name).read_bytes(), payload)
+                    else:
+                        for name in names.values():
+                            self.assertFalse((dist / name).exists())
 
     def test_release_threads_one_selection_through_every_container_command(self):
         distinctive = runtime.Selection(
@@ -593,6 +642,224 @@ class DriverRuntimeTest(unittest.TestCase):
         preflight.assert_called_once_with(target)
         self.assertEqual(capture.call_args.kwargs["apple_evidence"], evidence)
         self.assertIsNone(capture.call_args.kwargs["runtime_evidence"])
+
+    def test_macos_build_failures_use_driver_build_seam_and_never_publish(self):
+        target = self.data.target(authority.TARGET_IDS[2])
+
+        def patches(stack, _root, selected, error):
+            stack.enter_context(
+                mock.patch.object(
+                    driver, "_preflight", return_value=(self.data, selected, None)
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(driver, "_version", return_value="1.2.2-sol.2")
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    driver,
+                    "_source",
+                    return_value={
+                        "source_date_epoch": 1_700_000_000,
+                    },
+                )
+            )
+            stack.enter_context(mock.patch.object(driver, "_acquire_ca"))
+            build = stack.enter_context(
+                mock.patch.object(driver, "_build", side_effect=error)
+            )
+            return {"build": build}
+
+        for message in (
+            "fmt compile failed",
+            "OpenSSL configure failed",
+            "OpenSSL build failed",
+        ):
+            self.assert_release_failure_preserves_quartet(
+                target,
+                driver.ReleaseError(message),
+                patches,
+                expected_call="build",
+            )
+
+    def test_macos_preflight_sdk_failures_never_start_transaction(self):
+        target = self.data.target(authority.TARGET_IDS[2])
+
+        def patches(stack, _root, selected, error):
+            stack.enter_context(mock.patch.object(authority, "load", return_value=self.data))
+            stack.enter_context(
+                mock.patch.object(
+                    authority.Authority,
+                    "compatible_target",
+                    return_value=selected["id"],
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    authority.Authority,
+                    "require_compatible",
+                    return_value=selected,
+                )
+            )
+            stack.enter_context(mock.patch.object(driver, "_git", return_value=""))
+            preflight = stack.enter_context(
+                mock.patch.object(apple, "preflight", side_effect=error)
+            )
+            transaction_run = stack.enter_context(
+                mock.patch.object(driver.transaction, "run")
+            )
+            return {"preflight": preflight, "transaction": transaction_run}
+
+        for message in (
+            "Apple SDK discovery returned empty",
+            "Apple SDK discovery returned a nonexistent directory",
+        ):
+            error = apple.AppleToolchainError(message)
+            version = "1.2.2-sol.2"
+            names = set_validator.quartet_names(target, version)
+            for retained in (False, True):
+                with self.subTest(message=message, retained=retained):
+                    with tempfile.TemporaryDirectory() as directory:
+                        root = Path(directory)
+                        dist = root / "dist"
+                        if retained:
+                            dist.mkdir()
+                            original = {
+                                name: f"retained:{key}".encode()
+                                for key, name in names.items()
+                            }
+                            for name, payload in original.items():
+                                (dist / name).write_bytes(payload)
+                        with contextlib.ExitStack() as stack:
+                            calls = patches(stack, root, target, error)
+                            with self.assertRaisesRegex(
+                                apple.AppleToolchainError, re.escape(message)
+                            ):
+                                driver.release(root, target["id"])
+                        self.assertTrue(calls["preflight"].called)
+                        calls["transaction"].assert_not_called()
+                        if retained:
+                            for name, payload in original.items():
+                                self.assertEqual((dist / name).read_bytes(), payload)
+                        else:
+                            for name in names.values():
+                                self.assertFalse((dist / name).exists())
+
+    def test_macos_resolve_inconsistency_never_publishes(self):
+        target = self.data.target(authority.TARGET_IDS[2])
+
+        def patches(stack, _root, selected, error):
+            stack.enter_context(
+                mock.patch.object(
+                    driver, "_preflight", return_value=(self.data, selected, None)
+                )
+            )
+            stack.enter_context(
+                mock.patch.object(driver, "_version", return_value="1.2.2-sol.2")
+            )
+            stack.enter_context(
+                mock.patch.object(
+                    driver,
+                    "_source",
+                    return_value={"source_date_epoch": 1_700_000_000},
+                )
+            )
+            for name in (
+                "_acquire_ca",
+                "_build",
+                "_stage",
+                "_validate_layout",
+                "_gate_binaries",
+            ):
+                stack.enter_context(mock.patch.object(driver, name))
+
+            def run(arguments, **_kwargs):
+                if "sol/release/generate-dependencies.py" in arguments:
+                    Path(arguments[arguments.index("--json") + 1]).write_text(
+                        "[]", encoding="utf-8"
+                    )
+
+            stack.enter_context(mock.patch.object(driver, "_run", side_effect=run))
+
+            def construct(_stage, destination, *_arguments):
+                destination.write_bytes(b"archive")
+
+            stack.enter_context(
+                mock.patch.object(archive, "construct", side_effect=construct)
+            )
+            stack.enter_context(mock.patch.object(archive, "write_sidecar"))
+            resolve = stack.enter_context(
+                mock.patch.object(apple, "resolve", side_effect=error)
+            )
+            return {"resolve": resolve}
+
+        self.assert_release_failure_preserves_quartet(
+            target,
+            apple.AppleToolchainError("configured SDK differs from active SDK"),
+            patches,
+            expected_call="resolve",
+        )
+
+    def test_macos_floor_failures_fire_in_real_preflight_before_transaction(self):
+        base = self.data.target(authority.TARGET_IDS[2])
+        for floor in (None, "not-a-version"):
+            target = dict(base)
+            target["abi_floor"] = {} if floor is None else {"macos": floor}
+            data = authority.Authority(
+                self.data.path,
+                self.data.release,
+                {**self.data.targets, target["id"]: target},
+            )
+            with self.subTest(floor=floor):
+                for retained in (False, True):
+                    with tempfile.TemporaryDirectory() as directory:
+                        root = Path(directory)
+                        dist = root / "dist"
+                        names = set_validator.quartet_names(target, "1.2.2-sol.2")
+                        if retained:
+                            dist.mkdir()
+                            original = {
+                                name: f"retained:{key}".encode()
+                                for key, name in names.items()
+                            }
+                            for name, payload in original.items():
+                                (dist / name).write_bytes(payload)
+                        with contextlib.ExitStack() as stack:
+                            stack.enter_context(
+                                mock.patch.object(authority, "load", return_value=data)
+                            )
+                            stack.enter_context(
+                                mock.patch.object(
+                                    authority.Authority,
+                                    "compatible_target",
+                                    return_value=target["id"],
+                                )
+                            )
+                            stack.enter_context(
+                                mock.patch.object(
+                                    authority.Authority,
+                                    "require_compatible",
+                                    return_value=target,
+                                )
+                            )
+                            stack.enter_context(
+                                mock.patch.object(driver, "_git", return_value="")
+                            )
+                            transaction_run = stack.enter_context(
+                                mock.patch.object(driver.transaction, "run")
+                            )
+                            with self.assertRaisesRegex(
+                                apple.AppleToolchainError,
+                                "authority deployment target is invalid",
+                            ):
+                                driver.release(root, target["id"])
+                        transaction_run.assert_not_called()
+                        if retained:
+                            for name, payload in original.items():
+                                self.assertEqual((dist / name).read_bytes(), payload)
+                        else:
+                            for name in names.values():
+                                self.assertFalse((dist / name).exists())
 
 
 if __name__ == "__main__":

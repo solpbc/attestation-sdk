@@ -192,7 +192,13 @@ def _compiler_metadata(build_dir: Path) -> tuple[str, str]:
             f"compiler record under {build_dir / 'CMakeFiles'}; remove the build "
             "directory and rerun the native configure"
         )
-    text = paths[0].read_text(encoding="utf-8", errors="replace")
+    try:
+        text = paths[0].read_text(encoding="utf-8", errors="replace")
+    except OSError as error:
+        raise AppleToolchainError(
+            f"Apple toolchain evidence failed: cannot read {paths[0]}: {error}; "
+            "remove the build directory and rerun the native configure"
+        ) from error
 
     def field(name: str) -> str:
         matches = re.findall(
@@ -259,16 +265,28 @@ def validate_evidence(
     value: Any, target: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     if not isinstance(value, dict) or tuple(value) != _OUTER_KEYS:
-        raise AppleToolchainError("Apple toolchain evidence has invalid fields")
+        raise AppleToolchainError(
+            "Apple toolchain evidence has invalid fields; rebuild the Darwin "
+            "manifest with `make release TARGET=macos-arm64` on its native host"
+        )
     clang = value.get("apple_clang")
     xcode = value.get("xcode")
     sdk = value.get("sdk")
     if not isinstance(clang, dict) or tuple(clang) != _CLANG_KEYS:
-        raise AppleToolchainError("Apple toolchain evidence has invalid AppleClang fields")
+        raise AppleToolchainError(
+            "Apple toolchain evidence has invalid AppleClang fields; rebuild the "
+            "Darwin manifest with `make release TARGET=macos-arm64` on its native host"
+        )
     if not isinstance(xcode, dict) or tuple(xcode) != _XCODE_KEYS:
-        raise AppleToolchainError("Apple toolchain evidence has invalid Xcode fields")
+        raise AppleToolchainError(
+            "Apple toolchain evidence has invalid Xcode fields; rebuild the Darwin "
+            "manifest with `make release TARGET=macos-arm64` on its native host"
+        )
     if not isinstance(sdk, dict) or tuple(sdk) != _SDK_KEYS:
-        raise AppleToolchainError("Apple toolchain evidence has invalid SDK fields")
+        raise AppleToolchainError(
+            "Apple toolchain evidence has invalid SDK fields; rebuild the Darwin "
+            "manifest with `make release TARGET=macos-arm64` on its native host"
+        )
     scalar_fields = (
         clang["name"],
         clang["version"],
@@ -281,7 +299,10 @@ def validate_evidence(
         value["deployment_target"],
     )
     if any(not isinstance(field, str) or not field for field in scalar_fields):
-        raise AppleToolchainError("Apple toolchain evidence must be normalized")
+        raise AppleToolchainError(
+            "Apple toolchain evidence must be normalized; rebuild the Darwin manifest "
+            "with `make release TARGET=macos-arm64` on its native host"
+        )
     if (
         clang["name"] != APPLE_CLANG_NAME
         or sdk["name"] != SDK_NAME
@@ -293,16 +314,22 @@ def validate_evidence(
         or not Path(sdk["path"]).is_absolute()
         or not _VERSION.fullmatch(value["deployment_target"])
     ):
-        raise AppleToolchainError("Apple toolchain evidence has invalid normalized values")
+        raise AppleToolchainError(
+            "Apple toolchain evidence has invalid normalized values; rebuild the "
+            "Darwin manifest with `make release TARGET=macos-arm64` on its native host"
+        )
     if target is not None:
         architecture, floor = _target_values(target)
         if value["architecture"] != architecture:
             raise AppleToolchainError(
                 f"{target['id']}: Apple toolchain architecture is incompatible "
-                "with target architecture"
+                "with target architecture; rebuild the Darwin manifest with "
+                "`make release TARGET=macos-arm64` on its native host"
             )
         if value["deployment_target"] != floor:
             raise AppleToolchainError(
-                f"{target['id']}: Apple deployment target differs from authority"
+                f"{target['id']}: Apple deployment target differs from authority; "
+                "rebuild the Darwin manifest with "
+                "`make release TARGET=macos-arm64` on its native host"
             )
     return value

@@ -127,7 +127,10 @@ def capture_build_tools(
         )
     if target["host_os"] == "Linux":
         if apple_evidence is not None:
-            raise ManifestError(f"{target['id']}: Apple toolchain evidence is not permitted")
+            raise ManifestError(
+                f"{target['id']}: Apple toolchain evidence is not permitted; "
+                f"rebuild with `make release TARGET={target['id']}` on its native host"
+            )
         if runtime_evidence is None:
             raise ManifestError(f"{target['id']}: missing container runtime evidence")
         try:
@@ -138,9 +141,16 @@ def capture_build_tools(
             raise ManifestError(f"{target['id']}: {error}") from error
     else:
         if runtime_evidence is not None:
-            raise ManifestError(f"{target['id']}: container runtime evidence is not permitted")
+            raise ManifestError(
+                f"{target['id']}: container runtime evidence is not permitted; "
+                "rebuild the Darwin manifest with "
+                "`make release TARGET=macos-arm64` on its native host"
+            )
         if apple_evidence is None:
-            raise ManifestError(f"{target['id']}: missing Apple toolchain evidence")
+            raise ManifestError(
+                f"{target['id']}: missing Apple toolchain evidence; rebuild the Darwin "
+                "manifest with `make release TARGET=macos-arm64` on its native host"
+            )
         try:
             evidence[apple.EVIDENCE_KEY] = apple.validate_evidence(
                 apple_evidence, target
