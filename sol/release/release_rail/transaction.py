@@ -39,14 +39,22 @@ def run(
     destinations = {
         key: dist / destination_names[key] for key in QUARTET_ORDER
     }
-    for destination in destinations.values():
-        if destination.exists() or destination.is_symlink():
-            retained = destination.with_name(f"{destination.name}.retained")
-            command = shlex.join(["mv", str(destination), str(retained)])
-            raise TransactionError(
-                f"promotion refuses to overwrite: {destination}; "
-                f"move it aside with `{command}`, then retry"
-            )
+    existing = [
+        path
+        for path in destinations.values()
+        if path.exists() or path.is_symlink()
+    ]
+    if existing:
+        retained = dist / f"retained-{target_id}-{version}"
+        command = (
+            shlex.join(["mkdir", "-p", str(retained)])
+            + " && "
+            + shlex.join(["mv", *(str(path) for path in existing), str(retained)])
+        )
+        raise TransactionError(
+            f"promotion refuses to overwrite: {existing[0]}; "
+            f"move the existing quartet aside with `{command}`, then retry"
+        )
 
     def checkpoint(name: str) -> None:
         if fault_hook is not None:
