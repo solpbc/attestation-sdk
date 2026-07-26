@@ -118,7 +118,12 @@ def _copy_member(source: Path, destination: Path, item: dict[str, Any]) -> None:
         shutil.copy2(source, destination)
 
 
-def _build(root: Path, target: dict[str, Any], build_dir: Path) -> None:
+def _build(
+    root: Path,
+    target: dict[str, Any],
+    build_dir: Path,
+    source_date_epoch: int,
+) -> None:
     if target["host_os"] == "Linux":
         common = _git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
         _run(
@@ -127,6 +132,8 @@ def _build(root: Path, target: dict[str, Any], build_dir: Path) -> None:
                 "run",
                 "--rm",
                 f"--platform={target['container_platform']}",
+                "-e",
+                f"SOURCE_DATE_EPOCH={source_date_epoch}",
                 "-v",
                 f"{root}:/src:Z",
                 "-v",
@@ -148,6 +155,8 @@ def _build(root: Path, target: dict[str, Any], build_dir: Path) -> None:
     else:
         if build_dir.exists():
             shutil.rmtree(build_dir)
+        environment = os.environ.copy()
+        environment["SOURCE_DATE_EPOCH"] = str(source_date_epoch)
         _run(
             [
                 "cmake",
@@ -163,8 +172,13 @@ def _build(root: Path, target: dict[str, Any], build_dir: Path) -> None:
                 "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0",
             ],
             cwd=root,
+            env=environment,
         )
-        _run(["cmake", "--build", str(build_dir), "-j"], cwd=root)
+        _run(
+            ["cmake", "--build", str(build_dir), "-j"],
+            cwd=root,
+            env=environment,
+        )
 
 
 def _tool_invoker(root: Path, target: dict[str, Any]):
@@ -360,7 +374,7 @@ def release(root: Path, target_id: str | None) -> dict[str, Path]:
         _acquire_ca(data.release, ca)
         checkpoint("after-dependency-acquisition")
         build_dir = root / "build/release"
-        _build(root, target, build_dir)
+        _build(root, target, build_dir, source["source_date_epoch"])
         checkpoint("after-build")
         _stage(root, build_dir, stage, target, ca)
         dependencies_json = owned / "dependencies.json"
