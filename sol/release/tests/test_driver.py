@@ -58,7 +58,7 @@ class DriverPreflightTest(unittest.TestCase):
                     driver._acquire_ca(release, path)
 
     def test_linux_build_exports_source_date_epoch(self):
-        target = authority.load().target("linux-x86_64")
+        target = authority.load().target(authority.TARGET_IDS[0])
         root = Path("/source")
         with mock.patch.object(driver, "_git", return_value="/git/common"):
             with mock.patch.object(driver, "_run") as run:
