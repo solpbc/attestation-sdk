@@ -119,6 +119,28 @@ class AuthorityTest(unittest.TestCase):
                 with self.assertRaisesRegex(authority.AuthorityError, message):
                     self.load_mutated(mutate)
 
+    def test_macos_floor_and_architecture_are_fail_closed(self):
+        cases = (
+            (
+                lambda source: source.replace(
+                    'abi_floor = { macos = "14.0" }',
+                    'abi_floor = { macos = "latest" }',
+                ),
+                "abi_floor.macos must be a dotted numeric version",
+            ),
+            (
+                lambda source: source.replace(
+                    'expected_arch = "CPU_TYPE_ARM64"',
+                    'expected_arch = "EM_AARCH64"',
+                ),
+                "expected_arch must be CPU_TYPE_ARM64",
+            ),
+        )
+        for mutate, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(authority.AuthorityError, message):
+                    self.load_mutated(mutate)
+
     def test_accessor_reports_incompatible_forced_target(self):
         result = subprocess.run(
             [

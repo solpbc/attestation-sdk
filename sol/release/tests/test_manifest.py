@@ -8,7 +8,7 @@ from unittest import mock
 RELEASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_DIR))
 
-from release_rail import authority, manifest, runtime  # noqa: E402
+from release_rail import apple, authority, manifest, runtime  # noqa: E402
 from support import tools_for  # noqa: E402
 
 
@@ -43,9 +43,12 @@ class ManifestTest(unittest.TestCase):
                     Path("/missing"),
                     lambda _key, _command: next(outputs),
                     runtime_evidence=fixture.get(runtime.EVIDENCE_KEY),
+                    apple_evidence=fixture.get(apple.EVIDENCE_KEY),
                 )
                 expected = manifest.BUILD_TOOL_KEYS + (
-                    (runtime.EVIDENCE_KEY,) if target["host_os"] == "Linux" else ()
+                    (runtime.EVIDENCE_KEY,)
+                    if target["host_os"] == "Linux"
+                    else (apple.EVIDENCE_KEY,)
                 )
                 self.assertEqual(tuple(tools), expected)
                 rendered = repr(tools)
@@ -155,6 +158,17 @@ class ManifestTest(unittest.TestCase):
                     "compiler": "Apple clang 1.2.3",
                 }[key],
                 runtime_evidence=evidence,
+                apple_evidence=tools_for(macos)[apple.EVIDENCE_KEY],
+            )
+
+        with self.assertRaisesRegex(manifest.ManifestError, "missing Apple"):
+            manifest.capture_build_tools(
+                macos,
+                Path("/missing"),
+                lambda key, _command: {
+                    **outputs,
+                    "compiler": "Apple clang 1.2.3",
+                }[key],
             )
 
 

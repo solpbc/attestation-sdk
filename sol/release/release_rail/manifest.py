@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
-from . import archive, runtime
+from . import apple, archive, runtime
 
 
 class ManifestError(RuntimeError):
@@ -107,6 +107,7 @@ def capture_build_tools(
     invoker: Callable[[str, str], str | None] | None = None,
     *,
     runtime_evidence: dict[str, Any] | None = None,
+    apple_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     commands = list(target["required_tools"])
     compiler_command = _compiler_from_cache(build_dir, commands[0])
@@ -125,6 +126,8 @@ def capture_build_tools(
             else _capture(key, command)
         )
     if target["host_os"] == "Linux":
+        if apple_evidence is not None:
+            raise ManifestError(f"{target['id']}: Apple toolchain evidence is not permitted")
         if runtime_evidence is None:
             raise ManifestError(f"{target['id']}: missing container runtime evidence")
         try:
@@ -133,8 +136,17 @@ def capture_build_tools(
             )
         except runtime.RuntimeSelectionError as error:
             raise ManifestError(f"{target['id']}: {error}") from error
-    elif runtime_evidence is not None:
-        raise ManifestError(f"{target['id']}: container runtime evidence is not permitted")
+    else:
+        if runtime_evidence is not None:
+            raise ManifestError(f"{target['id']}: container runtime evidence is not permitted")
+        if apple_evidence is None:
+            raise ManifestError(f"{target['id']}: missing Apple toolchain evidence")
+        try:
+            evidence[apple.EVIDENCE_KEY] = apple.validate_evidence(
+                apple_evidence, target
+            )
+        except apple.AppleToolchainError as error:
+            raise ManifestError(f"{target['id']}: {error}") from error
     return evidence
 
 
@@ -142,7 +154,9 @@ def validate_build_tools(target: dict[str, Any], value: Any) -> None:
     if not isinstance(value, dict):
         raise ManifestError(f"{target['id']}: build_tools must be an object")
     expected = BUILD_TOOL_KEYS + (
-        (runtime.EVIDENCE_KEY,) if target["host_os"] == "Linux" else ()
+        (runtime.EVIDENCE_KEY,)
+        if target["host_os"] == "Linux"
+        else (apple.EVIDENCE_KEY,)
     )
     if tuple(value) != expected:
         raise ManifestError(f"{target['id']}: build_tools has invalid fields")
@@ -158,6 +172,11 @@ def validate_build_tools(target: dict[str, Any], value: Any) -> None:
         try:
             runtime.validate_evidence(value[runtime.EVIDENCE_KEY], target)
         except runtime.RuntimeSelectionError as error:
+            raise ManifestError(f"{target['id']}: {error}") from error
+    else:
+        try:
+            apple.validate_evidence(value[apple.EVIDENCE_KEY], target)
+        except apple.AppleToolchainError as error:
             raise ManifestError(f"{target['id']}: {error}") from error
 
 
