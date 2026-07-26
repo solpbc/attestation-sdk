@@ -237,7 +237,7 @@ def _docker(runner: Runner, environment: dict[str, str]) -> dict[str, Any]:
     ):
         raise RuntimeSelectionError("docker version and info evidence disagree")
     endpoint = environment.get("DOCKER_HOST") or _command(DOCKER_ENDPOINT, runner)
-    if not endpoint.startswith("unix://"):
+    if not endpoint.startswith("unix://") or not endpoint.removeprefix("unix://"):
         raise RuntimeSelectionError(
             f"docker endpoint is not local-unix compatible: {endpoint}"
         )
@@ -312,7 +312,5 @@ def render_mount(source: Path | str, destination: Path | str, readonly: bool) ->
     destination_path = Path(destination)
     if not source_path.is_absolute() or not destination_path.is_absolute():
         raise RuntimeSelectionError("container bind mount paths must be absolute")
-    if not str(source_path) or not str(destination_path):
-        raise RuntimeSelectionError("container bind mount paths must be nonempty")
     suffix = MOUNT_RO_SUFFIX if readonly else MOUNT_RW_SUFFIX
     return f"{source_path}:{destination_path}:{suffix}"
