@@ -9,9 +9,10 @@
 
 IMAGE := attestation-sdk-ci
 CLI_DIR := nv-attestation-cli
-include sol/release/release.env
 GIT_COMMON_DIR := $(shell git rev-parse --path-format=absolute --git-common-dir)
 PODMAN_RUN := podman run --rm -v $(CURDIR):/src:Z -v $(GIT_COMMON_DIR):$(GIT_COMMON_DIR):ro,Z -w /src $(IMAGE)
+RAIL := python3 sol/release/rail.py
+HOST_TARGET ?=
 
 # The upstream test harness hard-refuses to run when NVAT_C_SDK_TEST_SERVICE_KEY is
 # empty; the offline subset never sends it, so any non-empty value satisfies setup.
@@ -23,16 +24,25 @@ TEST_SERVICE_KEY ?= sol-unit-dummy
 #   make ci TEST_SERVICE_KEY=<real-key> NETWORK_TESTS='^$$'
 NETWORK_TESTS := GpuVerifierTest|SwitchVerifierTest|GpuLocalVerifierTestCApi|SwitchLocalVerifierTestCApi|RimDocumentFixture|AttestationTest|GpuEvidenceTest|SwitchEvidenceTest|GpuRemoteVerifierTestCApi|SwitchRemoteVerifierTestCApi
 
-.PHONY: install hopper-install image ci test release-linux-x86_64 format clean
+.PHONY: install hopper-install image rail-test ci ci-container test release format clean
 
 install: image
 
 hopper-install: image
 
 image:
-	podman build --build-arg CI_IMAGE=$(CI_IMAGE) -t $(IMAGE) -f sol/ci/Containerfile sol/ci
+	CI_IMAGE="$$( $(RAIL) authority build-image "$(HOST_TARGET)" )" && \
+		podman build --build-arg CI_IMAGE="$$CI_IMAGE" -t $(IMAGE) -f sol/ci/Containerfile sol/ci
 
-ci: image
+rail-test:
+	python3 -m unittest discover -s sol/release/tests -p 'test_*.py'
+	shellcheck $$(find sol -type f -name '*.sh' -print | sort)
+
+ci:
+	$(MAKE) rail-test
+	$(MAKE) ci-container HOST_TARGET="$(HOST_TARGET)"
+
+ci-container: image
 	./sol/check-curl-handle-sites.sh
 	$(PODMAN_RUN) bash -ec '\
 		  rm -rf build && \
@@ -42,9 +52,8 @@ ci: image
 
 test: ci
 
-release-linux-x86_64: image
-	./sol/check-curl-handle-sites.sh
-	./sol/release/release-linux-x86_64.sh
+release:
+	./sol/release/release.sh "$(TARGET)"
 
 format:
 	@echo "no formatter wired yet (upstream C++ has no enforced format); see sol/ci"
