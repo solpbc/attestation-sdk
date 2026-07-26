@@ -1,5 +1,10 @@
 # Portable nvattest design
 
+> **Superseded release-rail scope:** `sol/notes/tri-target-design.md` is the
+> current authority for everything under `sol/release/`. Sections 1–2 below
+> remain current for CA resolution and vendored dependencies; x86_64-era
+> release packaging and gating text is historical.
+
 > Non-authoritative planning record. `sol/release/release.env` is the sole
 > authority for the release revision, CA snapshot, and container image pins.
 

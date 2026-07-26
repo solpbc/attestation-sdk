@@ -1,0 +1,563 @@
+# Three-target release rail prep
+
+Research captured in the worktree
+`/home/jer/.hopper/worktrees/6gey4qmd`. No product file was changed and no
+build was run.
+
+## Q0 — Workspace reality check
+
+```text
+$ pwd
+/home/jer/.hopper/worktrees/6gey4qmd
+$ git rev-parse --show-toplevel
+/home/jer/.hopper/worktrees/6gey4qmd
+$ git rev-parse --git-common-dir
+/home/jer/projects/attestation-sdk/.git
+$ test -e dist; echo $?
+1
+```
+
+This proves that `dist/` is absent from this checkout and that the checkout
+shares Git metadata, not ignored output, with the main checkout.
+
+```text
+$ ls -la /home/jer/projects/attestation-sdk/dist
+total 7500
+drwxr-xr-x. 1 jer jer     310 Jul 21 21:46 .
+drwxr-xr-x. 1 jer jer     424 Jul 21 21:46 ..
+-rw-r--r--. 1 jer jer    5631 Jul 21 21:46 libnvat-linux-x86_64-1.2.2-sol.1-archive.manifest.json
+-rw-r--r--. 1 jer jer 7664136 Jul 21 21:46 libnvat-linux-x86_64-1.2.2-sol.1-archive.tar.xz
+-rw-r--r--. 1 jer jer     114 Jul 21 21:46 libnvat-linux-x86_64-1.2.2-sol.1-archive.tar.xz.sha256
+
+$ sha256sum /home/jer/projects/attestation-sdk/dist/*1.2.2-sol.1*
+91d74edd1fd163670fe138353fc5b9ff7a540a9052c2453d6440c0917f4bc38d  /home/jer/projects/attestation-sdk/dist/libnvat-linux-x86_64-1.2.2-sol.1-archive.manifest.json
+60ef75d1873e7129f03ea80d107d92b2ef216d2a8815958617b30d9c721d474a  /home/jer/projects/attestation-sdk/dist/libnvat-linux-x86_64-1.2.2-sol.1-archive.tar.xz
+3c6a82975e5590fd410d382561c7b23f0493c997b9ebc71d5f4b3e576b6bd37d  /home/jer/projects/attestation-sdk/dist/libnvat-linux-x86_64-1.2.2-sol.1-archive.tar.xz.sha256
+```
+
+These are the untouched accepted baseline hashes for audit.
+
+The stronger proposed statement that nothing in the rail writes outside
+`$(git rev-parse --show-toplevel)` is **false**. The release driver obtains an
+unqualified `mktemp -d` at `sol/release/release-linux-x86_64.sh:32`, then writes
+its stage, extracted tree, copied gate tools, CA downloads, and dependency JSON
+under that external temporary directory (`:37-55`, `:69-74`). It removes that
+directory through its EXIT trap (`:33-36`). The only persistent outputs are
+inside the worktree: the container build tree through the writable root mount
+(`:26-30`) and `dist/` (`:39`, `:87-103`). The Git common directory is mounted
+read-only (`:28`).
+
+Therefore “do not overwrite `dist/*sol.1*`” is automatically satisfied by
+running validation in this worktree: validation steps 3–5 will create a fresh
+worktree-local `dist/`; the accepted `sol.1` files are in another checkout and
+are neither mounted nor addressed. The design should describe the scope as
+“no persistent release outputs outside the worktree,” not claim that the
+driver performs no temporary writes outside it.
+
+## Q1 — Image pins for aarch64
+
+`skopeo` is not installed, while Podman is:
+
+```text
+$ command -v skopeo; echo skopeo_exit=$?
+skopeo_exit=1
+$ command -v podman; echo podman_exit=$?
+/usr/bin/podman
+podman_exit=0
+$ podman --version
+podman version 5.8.3
+```
+
+The working host command is `podman manifest inspect IMAGE`. Network access is
+required: it reads remote registry manifests. All six manifest inspections
+below exited 0, so resolution worked on this host.
+
+The existing pins are not all the same object kind:
+
+```text
+$ podman manifest inspect \
+    quay.io/pypa/manylinux_2_28_x86_64@sha256:a61875a2f84cab7df8de222ff12cabc08ff86eb4ad402ac90ba7bdaed9600cca
+WARN[0000] The manifest type application/vnd.docker.distribution.manifest.v2+json is not a manifest list but a single image.
+{
+    "schemaVersion": 2,
+    "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+    "manifests": null
+}
+[exit 0]
+
+$ podman manifest inspect \
+    docker.io/library/fedora@sha256:6c75d5bf57cb0fa5aa4b92c6a83c86c791644496d9ac230de7711f5b8ec3b898
+mediaType=application/vnd.oci.image.index.v1+json
+manifests=8
+[exit 0]
+
+$ podman manifest inspect \
+    docker.io/opensuse/tumbleweed@sha256:18a8c2a41252a0100ae4a7dae0a0e925fb522971645b97b05c57f9b6e73c3b4f
+mediaType=application/vnd.docker.distribution.manifest.list.v2+json
+manifests=8
+[exit 0]
+```
+
+The manylinux pin is a single Docker v2 image manifest. Fetching its config
+blob through the Quay v2 API reports `architecture=amd64`, `os=linux`, proving
+it resolves to one architecture. The Fedora pin is an OCI index and the
+Tumbleweed pin is a Docker manifest list; neither pin itself has an
+architecture.
+
+At capture time, inspecting the three requested tags produced these genuine
+arm64 platform manifests:
+
+```text
+$ podman manifest inspect quay.io/pypa/manylinux_2_28_aarch64:latest
+mediaType=application/vnd.docker.distribution.manifest.v2+json
+[exit 0]
+
+$ curl -sS -D headers -o manifest \
+    -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+    https://quay.io/v2/pypa/manylinux_2_28_aarch64/manifests/latest
+docker-content-digest: sha256:e7035406e58d96b7407246af1f6514a3cbd753a0025b42b9adfbeadd3b29ba80
+[exit 0]
+$ # Fetch manifest["config"]["digest"] from /blobs/... and inspect the JSON.
+architecture=arm64
+os=linux
+[exit 0]
+
+$ podman manifest inspect docker.io/library/fedora:latest
+mediaType=application/vnd.oci.image.index.v1+json
+arm64 v8 sha256:a471bd8bf8e7e99812fd2f29fc950685d860b3d528b9f090443dbc1a0d2bad62 application/vnd.oci.image.manifest.v1+json
+[exit 0]
+
+$ podman manifest inspect docker.io/opensuse/tumbleweed:latest
+mediaType=application/vnd.docker.distribution.manifest.list.v2+json
+arm64 v8 sha256:dc90443ab117e6887a4184d772259b84b3e9e54f6333c3331a42c97fdefd601d application/vnd.docker.distribution.manifest.v2+json
+[exit 0]
+```
+
+Directly fetching each Docker Hub child manifest and its config blob with a
+registry bearer token independently proved:
+
+```text
+library/fedora manifest_exit=0
+mediaType=application/vnd.oci.image.manifest.v1+json
+library/fedora config_exit=0
+architecture=arm64
+os=linux
+opensuse/tumbleweed manifest_exit=0
+mediaType=application/vnd.docker.distribution.manifest.v2+json
+opensuse/tumbleweed config_exit=0
+architecture=arm64
+os=linux
+```
+
+Resolved per-architecture candidates are therefore:
+
+* manylinux aarch64:
+  `sha256:e7035406e58d96b7407246af1f6514a3cbd753a0025b42b9adfbeadd3b29ba80`
+* Fedora arm64:
+  `sha256:a471bd8bf8e7e99812fd2f29fc950685d860b3d528b9f090443dbc1a0d2bad62`
+* Tumbleweed arm64:
+  `sha256:dc90443ab117e6887a4184d772259b84b3e9e54f6333c3331a42c97fdefd601d`
+
+There is a design contradiction to resolve: the manylinux aarch64 candidate is
+the same kind as its existing pin (single platform manifest), but the Fedora
+and Tumbleweed arm64 candidates are necessarily child manifests and therefore
+not the same kind as their existing multi-arch index pins. Keeping the bare
+pins' current kind means pinning the same architecture-neutral index for both
+targets and relying on `--platform`; it does not yield a per-architecture
+digest. The clean uniform convention is to migrate **both** x86_64 and arm64
+bare-image pins to their platform child digests. Tags are mutable, so the three
+captured candidates must be re-resolved/reconfirmed immediately before design
+locks them.
+
+## Q2 — Reading foreign binaries and gating Mach-O
+
+The host GNU binutils read a real Ubuntu arm64 glibc loader downloaded from
+`ports.ubuntu.com`:
+
+```text
+$ readelf --version | head -1
+GNU readelf (GNU Binutils; openSUSE Tumbleweed) 2.45.0.20251103-4
+$ readelf -h /tmp/tri-libc6-root/usr/lib/ld-linux-aarch64.so.1 |
+    grep -E 'Class:|Data:|Machine:'
+  Class:                             ELF64
+  Data:                              2's complement, little endian
+  Machine:                           AArch64
+[exit 0]
+$ strings /tmp/tri-libc6-root/usr/lib/ld-linux-aarch64.so.1 > strings.txt
+[exit 0]
+$ readelf -d /tmp/tri-libc6-root/usr/lib/ld-linux-aarch64.so.1 |
+    grep 'SONAME'
+ 0x000000000000000e (SONAME)             Library soname: [ld-linux-aarch64.so.1]
+[exit 0]
+$ readelf -h /bin/ls | grep 'Machine:'
+  Machine:                           Advanced Micro Devices X86-64
+[exit 0]
+```
+
+Thus ELF architecture identity is the `Machine:` field: GNU readelf prints
+`Advanced Micro Devices X86-64` for x86-64 and `AArch64` for arm64. The
+aarch64 glibc loader's verified DT_SONAME is `ld-linux-aarch64.so.1`.
+`strings` is architecture-independent byte scanning and exited 0 on that file.
+
+No Apple binary tools are installed:
+
+```text
+$ command -v otool; echo "otool exit=$?"
+otool exit=1
+$ command -v lipo; echo "lipo exit=$?"
+lipo exit=1
+$ command -v llvm-objdump; echo "llvm-objdump exit=$?"
+llvm-objdump exit=1
+$ command -v codesign; echo "codesign exit=$?"
+codesign exit=1
+$ command -v install_name_tool; echo "install_name_tool exit=$?"
+install_name_tool exit=1
+```
+
+A pure-Python Mach-O gate must parse the following, bounds-checking every
+header, slice, command, `cmdsize`, and NUL-terminated string:
+
+* Thin 64-bit header: `MH_MAGIC_64=0xfeedfacf` (and byte-swapped
+  `MH_CIGAM_64=0xcffaedfe`). `mach_header_64` is 32 bytes: `magic` offset 0,
+  `cputype` 4, `cpusubtype` 8, `filetype` 12, `ncmds` 16, `sizeofcmds` 20,
+  `flags` 24, `reserved` 28. Require
+  `CPU_TYPE_ARM64=0x0100000c`; compare the low 24 subtype bits after masking
+  capability bits. `CPU_SUBTYPE_ARM64_ALL=0`; `CPU_SUBTYPE_ARM64E=2` should be
+  an explicit policy choice, not accidentally accepted.
+* Universal input: `FAT_MAGIC=0xcafebabe`, `FAT_CIGAM=0xbebafeca`,
+  `FAT_MAGIC_64=0xcafebabf`, `FAT_CIGAM_64=0xbfbafeca`; `fat_header` is
+  big-endian `magic,nfat_arch`. Each 32-bit `fat_arch` is 20 bytes
+  (`cputype,cpusubtype,offset,size,align` at 0,4,8,12,16); `fat_arch_64` is 32
+  bytes (`cputype,cpusubtype` at 0,4, 64-bit `offset,size` at 8,16, then
+  `align,reserved` at 24,28). A target-specific artifact should reject a fat
+  binary explicitly. If universal binaries are permitted instead, the parser
+  must locate and fully validate the arm64 slice; treating a fat header as a
+  thin header is never valid.
+* Deployment target: `LC_BUILD_VERSION=0x32`; its fields after
+  `cmd,cmdsize` are `platform` offset 8, `minos` 12, `sdk` 16, `ntools` 20.
+  Decode packed versions as major=`v>>16`, minor=`(v>>8)&0xff`,
+  patch=`v&0xff`. Also support legacy
+  `LC_VERSION_MIN_MACOSX=0x24` (`version` offset 8, `sdk` 12), because valid
+  older-build-tool Mach-O files may omit `LC_BUILD_VERSION`; the gate must
+  reject a binary with neither command.
+* Runtime references: `LC_LOAD_DYLIB=0x0c`, `LC_ID_DYLIB=0x0d`, and
+  `LC_RPATH=LC_REQ_DYLD|0x1c=0x8000001c`. In `dylib_command`,
+  `dylib.name.offset` is at command offset 8 (then timestamp/current/
+  compatibility versions at 12/16/20). In `rpath_command`,
+  `path.offset` is likewise at 8. `lc_str` is an offset from the start of its
+  containing load command, not a file-global offset. For a complete runtime
+  allowlist, also treat `LC_LOAD_WEAK_DYLIB=0x80000018`,
+  `LC_REEXPORT_DYLIB=0x8000001f`, `LC_LAZY_LOAD_DYLIB=0x20`, and
+  `LC_LOAD_UPWARD_DYLIB=0x80000023` as dependency-bearing commands.
+
+Python's standard-library `struct` module can decode all of these fixed-width,
+endian-aware fields; normal `bytes` operations can bound and terminate the
+strings. No third-party package is implied. Signature validation or mutation
+would require more, but neither is part of the proposed read-only gate.
+
+## Q3 — macOS/aarch64 build portability risks
+
+### Blocking for native build
+
+* **OpenSSL target selection.** The vendored branch invokes
+  `<SOURCE_DIR>/Configure` with `CC=...` and flags but passes no OpenSSL target
+  string (`nv-attestation-sdk-cpp/CMakeLists.txt:185-201`). A controlled arm64
+  build needs `darwin64-arm64-cc` on macOS or `linux-aarch64` on Linux. Native
+  auto-detection may work, but it is not an explicit/pinned target and
+  cross-compilation cannot rely on it.
+* **Autoconf cross/native assumptions.** libxml2 (`:226-245`), xmlsec
+  (`:250-273`), and curl (`:280-306`) pass `CC`/`CFLAGS` but no
+  `--build`/`--host`. This blocks a Linux-hosted Apple or aarch64 Linux cross
+  build when configure tests try to execute target programs. For Apple clang,
+  the design must use a real Apple SDK/sysroot and a coherent
+  `--host=aarch64-apple-darwin`; `--with-openssl`/`--with-libxml` and the
+  hand-built `PKG_CONFIG_PATH` must be verified against Darwin static archives.
+  The curl `--with-ca-fallback` plus `--without-ca-bundle`/
+  `--without-ca-path` combination (`:284-302`) is also platform-sensitive.
+* **Linux library/link assumptions.** Vendored OpenSSL advertises
+  `"dl;pthread"` (`:209-220`) and curl advertises
+  `"OpenSSL::SSL;OpenSSL::Crypto;z;pthread"` (`:311-316`). Darwin has pthread
+  APIs but no separate Linux `libdl`; blindly emitting `-ldl` is a native link
+  blocker. The repository contains no explicit `-Wl,--exclude-libs`,
+  `-Wl,-soname`, or version-script flag, but generated dependency build systems
+  still need checking for GNU-ld-only output.
+* **Rust target propagation.** Corrosion is fetched and imports regorus as a
+  Rust staticlib (`:40-62`), but the project sets no Rust/Cargo target triple;
+  only an optional `RUSTC_WRAPPER` is set (`:64-66`). The required triples are
+  `aarch64-apple-darwin` and `aarch64-unknown-linux-gnu`. Corrosion currently
+  infers the target from CMake/toolchain state, so each toolchain must prove
+  that mapping and have the Rust target installed.
+* **No Apple toolchain on this host.** Q2 proves the host lacks even inspection
+  utilities, and there is no Apple SDK/toolchain in the inspected build
+  configuration. Consequently an `aarch64-apple-darwin` native artifact cannot
+  be produced on this Linux host by the current rail.
+
+### Informational, but must be verified
+
+* Warning flags are `-Wall -Wextra -Wpedantic -pedantic`, with `-Werror` when
+  CMake is older than 3.24 and warning-as-error is enabled
+  (`nv-attestation-sdk-cpp/CMakeLists.txt:328-334`);
+  `nv-attestation-cli/CMakeLists.txt:7-8` enables the CMake warning-as-error
+  property. The GoogleTest helper has a Clang-specific exemption
+  (`nv-attestation-sdk-cpp/cmake/nvat_fetch_gtest.cmake:17-22`).
+  `-ffile-prefix-map` is enabled for both GNU and Clang
+  (`nv-attestation-sdk-cpp/CMakeLists.txt:341-344`) and is accepted by modern
+  Apple clang, but the selected Apple clang version must confirm it.
+* `VERSION=1.2.2` and `SOVERSION=1` are properties on `nvat`
+  (`nv-attestation-sdk-cpp/CMakeLists.txt:381-385`). CMake's Darwin shared
+  library rules automatically produce the platform spelling and symlink chain
+  `libnvat.1.2.2.dylib`, `libnvat.1.dylib`, `libnvat.dylib` rather than
+  Linux's `libnvat.so.1.2.2`, `.so.1`, `.so`; the release staging member names,
+  not these properties, need target-specific handling.
+* NVML, corelib, and NSCQ dynamically open Linux names
+  `libnvidia-ml.so.1`, `libcorelib.so.1`, and `libnvidia-nscq.so.2`
+  (`nv-attestation-sdk-cpp/src/gpu/nvml_client.cpp:191-194`,
+  `gpu/corelib_client.cpp:197-200`,
+  `switch/nscq_client.cpp:172-175`). Those opens fail on Darwin if hardware
+  collection is selected. They are lazy: JSON file sources deserialize and
+  return evidence without initializing those clients
+  (`gpu/evidence.cpp:648-699`, `switch/evidence.cpp:475-525`), while hardware
+  collectors initialize them only in their `get_evidence` paths
+  (`gpu/evidence.cpp:177-205`, `switch/evidence.cpp:174-182`). SDK init itself
+  initializes logging/xmlsec, not the device clients (`src/init.cpp:121-140`).
+  Thus the file-evidence + local-verifier product path is genuinely isolated
+  from these `dlopen`s, although hardware collection is unsupported on Darwin.
+* `find_package(ZLIB REQUIRED)` is unconditional
+  (`nv-attestation-sdk-cpp/CMakeLists.txt:326`), and `nvat` links
+  `ZLIB::ZLIB` (`:425-442`). macOS SDKs provide libz, so it need not be
+  vendored, but a Mach-O runtime allowlist must permit the SDK's recorded
+  install name (normally `/usr/lib/libz.1.dylib`), not the Linux `libz.so.1`
+  spelling.
+
+For `aarch64-unknown-linux-gnu`, the same explicit OpenSSL target,
+Autoconf `--build/--host`, and Corrosion target propagation are blocking when
+cross-building; they become verification items for a native aarch64 container.
+The warning and prefix-map flags are portable to GCC/Clang, CMake retains the
+ELF `VERSION`/`SOVERSION` naming, and the existing Linux device-library names
+remain appropriate.
+
+## Q4 — Determinism
+
+The driver uses:
+
+```text
+tar --sort=name --mtime="@$source_date_epoch" --owner=0 --group=0 --numeric-owner \
+  -C "$stage" -cJf "$archive" "${members[@]}"
+sha256sum "$archive"
+```
+
+GNU tar's `--sort=name` has no BSD/Apple tar equivalent. Apple/BSD tar also
+does not provide GNU tar's exact `--mtime=@EPOCH`, `--owner=0`, `--group=0`,
+and `--numeric-owner` creation semantics/flag set; analogous bsdtar options do
+not make this command byte-compatible because header format, metadata
+normalization, and traversal differ. `-c`, `-f`, and `-C` are portable; `-J`
+depends on xz support in the tar build and is not a safe Apple-base-userland
+assumption. `sha256sum` is GNU coreutils and is absent from stock macOS, whose
+usual command is `shasum -a 256` (or `openssl dgst -sha256`); the digest
+algorithm is identical, but sidecar formatting differs unless the rail writes
+it itself. `xz` is also not a stock macOS command.
+
+Acceptance criterion 7 narrowly requires two fixture builds from identical
+source and complete pinned inputs, for each target, to produce byte-identical
+archives and sidecars. It does **not** require Linux and macOS archive
+implementations, or two different host operating systems, to emit identical
+bytes. The defensible claim is **same target, same controlled host/tool image,
+twice**. The rail should not claim cross-host byte identity without pinning one
+archive implementation and compression implementation across hosts.
+
+xz output can vary with compression level and threading; in particular `-T0`
+or another multithread setting may choose block boundaries based on available
+resources, changing bytes. The present `tar -cJf` supplies no xz options and
+GNU tar's xz filter defaults to single-threaded compression, so it is not
+currently exposed to `-T` variability. The future driver should keep that
+explicit (for example fixed xz level and `-T1`) rather than inherit
+environmental `XZ_OPT`.
+
+## Q5 — Test placement and `make ci`
+
+Host Python is usable, but Python 3.13's discover command returns 5 when the
+fixture contains no tests:
+
+```text
+$ python3 --version
+Python 3.13.13
+$ python3 -m unittest discover -s /tmp/tri-empty-tests
+
+----------------------------------------------------------------------
+Ran 0 tests in 0.000s
+
+NO TESTS RAN
+unittest_exit=5
+```
+
+This proves the unittest runner/discovery path works and also forecloses using
+an empty directory as a green smoke check. Real rail tests containing at least
+one `unittest.TestCase` are required.
+
+Today `ci: image` (`Makefile:35`), so any recipe added directly under `ci`
+cannot run before its prerequisite image build. The smallest wiring is a
+standalone phony `rail-test` target running
+`python3 -m unittest discover ...`, followed by `ci: rail-test image` (or an
+explicit recursive/recipe ordering if strict sequencing before `image` is
+required). `rail-test` remains directly runnable without Podman; `ci` retains
+the existing container phase (`Makefile:35-41`). GNU make does not guarantee
+left-to-right prerequisite execution under parallel make, so “before” should
+not rely solely on prerequisite spelling if that ordering is a requirement.
+
+The requested shellcheck baseline is **not clean**:
+
+```text
+$ shellcheck --version
+ShellCheck - shell script analysis tool
+version: 0.11.0
+[exit 0]
+$ shellcheck sol/release/*.sh sol/*.sh
+sol/release/gate-artifact.sh:16:56: info: Expansions inside ${..} need to be quoted separately [SC2295]
+...same SC2295 at lines 21, 26, 32, 40, 54, 60, and 64...
+sol/release/release-linux-x86_64.sh:12:8: info: Not following: sol/release/release.env was not specified as input [SC1091]
+sol/release/release-linux-x86_64.sh:169:4: warning: You probably wanted && here, otherwise it's always true [SC2055]
+shellcheck_exit=1
+```
+
+SC2055 is material: it flags the multiline `[[ ... || ... ]]` consistency
+condition at `release-linux-x86_64.sh:168-172`. Design must include resolving
+the existing baseline or narrowly configuring the lint invocation; it cannot
+claim current cleanliness.
+
+Podman and Quay registry reachability are available without performing a build:
+
+```text
+$ podman --version
+podman version 5.8.3
+$ podman manifest inspect quay.io/pypa/manylinux_2_28_aarch64:latest
+[exit 0]
+$ curl -sS -o /dev/null -w 'quay_http=%{http_code}\n' https://quay.io/v2/
+quay_http=401
+quay_curl_exit=0
+```
+
+The expected unauthenticated v2 challenge plus successful manifest inspection
+proves DNS/TLS/registry reachability needed by `make image`. It does not prove
+that every Containerfile download will remain available or that a full image
+build succeeds; no image build was run.
+
+## Q6 — Existing-guarantee inventory
+
+The x86_64 preserve-everything contract is:
+
+* clean Git worktree including untracked files
+  (`sol/release/release-linux-x86_64.sh:4-10`);
+* version derived from the SDK project version and suffixed with the configured
+  Sol revision (`:14-21`);
+* commit timestamp captured as `SOURCE_DATE_EPOCH` input and absolute shared
+  Git directory mounted read-only (`:21-30`);
+* curl easy-handle site guard before building (`:24`);
+* clean release build, vendored dependencies, tests off, shared `nvat`, Release
+  mode, inside the pinned CI image (`:26-30`; image pin is supplied by
+  `Makefile:32-33`);
+* host-independent gate tools copied from the CI image together with their
+  non-baseline runtime libraries (`:41-52`);
+* both the downloaded CA payload hash **and** curl's published sidecar hash
+  equal the pinned hash; either mismatch fails (`:54-62`);
+* staged executable, two symlinks, versioned regular library, license, CA
+  snapshot, and generated third-party notices (`:64-74`);
+* every listed binary is readable ELF; inability to read its dynamic section
+  fails (`sol/release/gate-artifact.sh:7-18`);
+* an empty DT_NEEDED set fails, and every needed SONAME must be an exact member
+  of the allowlist (`gate-artifact.sh:19-29`);
+* symbol-version parsing errors fail and GLIBC, GLIBCXX, and CXXABI requirements
+  may not exceed 2.28, 3.4.25, and 1.3.11 respectively (`:31-57`);
+* strings extraction errors fail, as do compiled-in Debian or Fedora host CA
+  paths (`:59-66`);
+* one ordered `members` array is the archive input (`release-linux-x86_64.sh:
+  78-89`) and is also passed, in order, to the manifest generator (`:96-112`);
+* GNU tar sorts names and normalizes mtime, uid, gid, and numeric-owner output
+  before xz compression; the produced archive is extracted afresh for gates
+  (`:87-90`);
+* archive SHA-256 drives both the checksum sidecar and manifest artifact hash
+  (`:92-112`);
+* both pinned bare images rerun the ELF gate, execute `nvattest --help`, and
+  require a missing authoritative CA path to fail while naming the path and
+  `--ca-bundle` tier (`:114-135`);
+* bare-image layout asserts regular files for LICENSE, executable, CA, notices,
+  and the fully versioned library, but symlinks specifically for
+  `lib/libnvat.so` and `lib/libnvat.so.1` (`:136-142`);
+* exact per-directory entry counts are root=4, bin=1, lib=3, share=2,
+  share/ca=1 (`:143-147`);
+* each bare image independently recomputes the archive hash and requires it to
+  equal both sidecar and manifest hashes (`:149-155`);
+* the manifest generator records `git merge-base main HEAD`, the ordered commit
+  series from that base, dependency pins, CI image, CA provenance,
+  `SOURCE_DATE_EPOCH`, and ordered members
+  (`sol/release/generate-manifest.py:28-56`);
+* the final host gate recomputes `git merge-base main HEAD` and the ordered
+  commit series, and compares artifact, sidecar, manifest base, manifest series,
+  and ordered members (`release-linux-x86_64.sh:161-175`).
+
+### Open questions for design
+
+* Should all Fedora/Tumbleweed pins migrate from index digests to platform-child
+  digests, or should “per-architecture digest” be relaxed for bare images?
+* Are target-specific macOS archives required to reject universal Mach-O files,
+  or may they contain a validated arm64 slice plus other architectures?
+* Which controlled macOS builder supplies the licensed Apple SDK/toolchain?
+* Is arm64 Linux built natively in an aarch64 container/runner or crossed from
+  x86_64? That decides whether explicit Autoconf and Rust cross plumbing is
+  mandatory in the first implementation.
+* Should current ShellCheck findings be fixed as part of the rail rewrite or
+  recorded as an accepted, narrowly suppressed baseline?
+
+## Mutation proof: aarch64 policy must reject x86_64 ELF
+
+After the static-gate suite was green, the `EM_AARCH64` policy mapping was
+temporarily changed from `elf.EM_AARCH64` to `elf.EM_X86_64`. The complete
+focused suite then produced:
+
+```text
+$ hop check -n 120 -- python3 -m unittest discover -s sol/release/tests -p 'test_*.py'
+hop check: `python3 -m unittest discover -s sol/release/tests -p test_*.py` exited 1
+...........EF............
+======================================================================
+ERROR: test_each_elf_architecture_accepts_its_own_and_rejects_the_other (test_gate.GateTest.test_each_elf_architecture_accepts_its_own_and_rejects_the_other) (target='linux-aarch64', state='native')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jer/.hopper/worktrees/6gey4qmd/sol/release/tests/test_gate.py", line 41, in test_each_elf_architecture_accepts_its_own_and_rejects_the_other
+    gate.gate_file(
+    ~~~~~~~~~~~~~~^
+        self.write(target_id, fixtures.elf_fixture(native)),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        target,
+        ^^^^^^^
+        allowlist,
+        ^^^^^^^^^^
+    )
+    ^
+  File "/home/jer/.hopper/worktrees/6gey4qmd/sol/release/release_rail/gate.py", line 126, in gate_file
+    gate_elf(path, target, allowlist)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jer/.hopper/worktrees/6gey4qmd/sol/release/release_rail/gate.py", line 38, in gate_elf
+    raise GateError(
+    ...<2 lines>...
+    )
+release_rail.gate.GateError: /tmp/tmpllcdy58a/linux-aarch64: wrong ELF architecture: expected EM_AARCH64 (62), got e_machine=183
+
+======================================================================
+FAIL: test_each_elf_architecture_accepts_its_own_and_rejects_the_other (test_gate.GateTest.test_each_elf_architecture_accepts_its_own_and_rejects_the_other) (target='linux-aarch64', state='foreign')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/jer/.hopper/worktrees/6gey4qmd/sol/release/tests/test_gate.py", line 47, in test_each_elf_architecture_accepts_its_own_and_rejects_the_other
+    with self.assertRaisesRegex(gate.GateError, "wrong ELF architecture"):
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: GateError not raised
+
+----------------------------------------------------------------------
+Ran 24 tests in 0.044s
+
+FAILED (failures=1, errors=1)
+mutation_exit=1
+```
+
+The mutation command exited 1. The mutation was immediately reverted. This
+proves the suite rejects the precise architecture defect: an aarch64 gate that
+accepts an x86_64 ELF (and, as the paired assertion shows, rejects its native
+AArch64 ELF).
