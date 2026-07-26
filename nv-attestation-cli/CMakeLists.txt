@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.11)
-if(APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Minimum macOS deployment target")
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+    include("${CMAKE_CURRENT_LIST_DIR}/../nv-attestation-sdk-cpp/cmake/nvat_apple_sdk.cmake")
+    nvat_resolve_apple_toolchain()
 endif()
 project(nvattest VERSION 1.2.2)
 
