@@ -110,6 +110,16 @@ set(CMAKE_POSITION_INDEPENDENT_CODE_SAVED ${CMAKE_POSITION_INDEPENDENT_CODE})
 set(BUILD_SHARED_LIBS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+function(nvat_exempt_compiled_third_party target pin)
+  if(NOT TARGET ${target})
+    message(FATAL_ERROR
+      "${target} warning-policy exemption failed: expected compiled target "
+      "${target} after FetchContent_MakeAvailable; verify the pinned ${pin} "
+      "target layout")
+  endif()
+  set_target_properties(${target} PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
+endfunction()
+
 # Build fmt as static library (spdlog depends on it)
 set(FMT_INSTALL OFF CACHE BOOL "Don't install fmt headers" FORCE)
 FetchContent_Declare(
@@ -119,12 +129,7 @@ FetchContent_Declare(
   EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(fmt)
-if(NOT TARGET fmt)
-  message(FATAL_ERROR
-    "fmt warning-policy exemption failed: expected compiled target fmt after "
-    "FetchContent_MakeAvailable; verify the pinned fmt 10.2.1 target layout")
-endif()
-set_target_properties(fmt PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
+nvat_exempt_compiled_third_party(fmt "fmt 10.2.1")
 
 # Build spdlog as static library using our fetched fmt
 set(SPDLOG_INSTALL OFF CACHE BOOL "Don't install spdlog headers" FORCE)
@@ -137,6 +142,7 @@ FetchContent_Declare(
   EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(spdlog)
+nvat_exempt_compiled_third_party(spdlog "spdlog 1.14.1")
 
 # Restore original settings
 set(BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS_SAVED})

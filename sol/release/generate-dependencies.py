@@ -7,9 +7,8 @@ import shlex
 import sys
 
 
-def declarations(path):
-    text = path.read_text()
-    pattern = re.compile(r"(?:ExternalProject_Add|FetchContent_Declare)\s*\(")
+def declaration_records(text, path):
+    pattern = re.compile(r"(ExternalProject_Add|FetchContent_Declare)\s*\(")
     for match in pattern.finditer(text):
         depth = 1
         index = match.end()
@@ -34,6 +33,11 @@ def declarations(path):
         tokens = shlex.split(body, posix=True)
         if not tokens:
             raise ValueError(f"empty dependency declaration in {path}")
+        yield match.group(1), tokens
+
+
+def declarations(path):
+    for _kind, tokens in declaration_records(path.read_text(), path):
         yield tokens
 
 
@@ -53,12 +57,17 @@ def classify(name, path):
     return "runtime"
 
 
-def parse(root):
+def dependency_inputs(root):
     inputs = sorted(
         list((root / "nv-attestation-sdk-cpp").rglob("CMakeLists.txt"))
         + list((root / "nv-attestation-cli").rglob("CMakeLists.txt"))
     )
     inputs.append(root / "nv-attestation-sdk-cpp/cmake/nvat_fetch_gtest.cmake")
+    return inputs
+
+
+def parse(root):
+    inputs = dependency_inputs(root)
     dependencies = {}
     for path in inputs:
         for tokens in declarations(path):
