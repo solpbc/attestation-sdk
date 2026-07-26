@@ -101,7 +101,8 @@ class TransactionTest(unittest.TestCase):
             (self.dist / basename).write_text("previous", encoding="utf-8")
         with self.assertRaisesRegex(
             transaction.TransactionError,
-            "promotion refuses to overwrite: .*move it aside with `mv .*`, then retry",
+            "promotion refuses to overwrite: .*move the existing quartet aside with "
+            "`mkdir -p .* && mv .*`, then retry",
         ):
             transaction.run(
                 dist=self.dist,
