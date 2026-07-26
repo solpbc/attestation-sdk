@@ -134,6 +134,14 @@ class SetValidatorTest(unittest.TestCase):
                 lambda value: value["source"].update(source_date_epoch=42),
             ),
             (
+                "source.sol_series_commits",
+                lambda value: value["source"].update(
+                    sol_series_commits=[
+                        {"commit": "7" * 40, "subject": "different"}
+                    ]
+                ),
+            ),
+            (
                 "source.commit",
                 lambda value: value["source"].update(commit="8" * 40),
             ),

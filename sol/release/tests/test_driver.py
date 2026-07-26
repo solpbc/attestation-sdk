@@ -1,5 +1,6 @@
 import hashlib
 import io
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -13,6 +14,140 @@ sys.path.insert(0, str(RELEASE_DIR))
 
 import rail  # noqa: E402
 from release_rail import archive, authority, driver, manifest  # noqa: E402
+
+
+class SourceTest(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.git("init", "-q", "-b", "fork")
+        self.git("config", "user.name", "Release Test")
+        self.git("config", "user.email", "release-test@example.invalid")
+        self.base = self.commit("upstream base")
+        self.expected = [
+            (self.commit("sol one"), "sol one"),
+            (self.commit("sol two"), "sol two"),
+            (self.commit("sol three"), "sol three"),
+        ]
+        self.tip = self.expected[-1][0]
+        self.release = dict(authority.load().release)
+        self.release["upstream_base_commit"] = self.base
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def git(self, *arguments, input_text=None):
+        return subprocess.check_output(
+            ["git", "-C", str(self.root), *arguments],
+            input=input_text,
+            text=True,
+        ).strip()
+
+    def commit(self, subject):
+        path = self.root / f"tracked-{subject.replace(' ', '-')}"
+        path.write_text(f"{subject}\n", encoding="utf-8")
+        self.git("add", path.name)
+        self.git("commit", "-q", "-m", subject)
+        return self.git("rev-parse", "HEAD")
+
+    def assert_valid_source(self):
+        value = driver._source(self.root, self.release)
+        self.assertEqual(value["commit"], self.tip)
+        self.assertEqual(value["upstream_base_commit"], self.base)
+        self.assertEqual(
+            value["sol_series_commits"],
+            [
+                {"commit": revision, "subject": subject}
+                for revision, subject in self.expected
+            ],
+        )
+
+    def test_main_absent_stale_or_at_fork_tip_does_not_affect_series(self):
+        self.assert_valid_source()
+        self.git("branch", "main", self.base)
+        self.assert_valid_source()
+        self.git("branch", "-f", "main", self.tip)
+        self.assert_valid_source()
+
+    def test_missing_and_noncommit_base_fail_closed(self):
+        missing = "0" * 40
+        blob = self.git("hash-object", "-w", "--stdin", input_text="not a commit")
+        for value in (missing, blob):
+            with self.subTest(base=value):
+                release = dict(self.release, upstream_base_commit=value)
+                with self.assertRaisesRegex(
+                    driver.SourceError,
+                    "pinned upstream base is missing or is not a commit.*"
+                    "fetch the repository history containing that commit",
+                ):
+                    driver._source(self.root, release)
+
+    def test_nonancestor_base_fails_closed(self):
+        tree = self.git("rev-parse", f"{self.base}^{{tree}}")
+        unrelated = self.git(
+            "commit-tree", tree, "-p", self.base, input_text="unrelated\n"
+        )
+        release = dict(self.release, upstream_base_commit=unrelated)
+        with self.assertRaisesRegex(
+            driver.SourceError,
+            "pinned upstream base is not an ancestor of source.commit.*"
+            "check out the intended sol release history",
+        ):
+            driver._source(self.root, release)
+
+    def test_empty_series_fails_closed(self):
+        release = dict(self.release, upstream_base_commit=self.tip)
+        with self.assertRaisesRegex(
+            driver.SourceError,
+            "source series is empty.*check out the sol release commits",
+        ):
+            driver._source(self.root, release)
+
+    def test_merge_in_range_fails_closed(self):
+        self.git("switch", "-q", "-c", "side", self.base)
+        self.commit("side change")
+        self.git("switch", "-q", "fork")
+        self.git("merge", "-q", "--no-ff", "side", "-m", "merge side")
+        with self.assertRaisesRegex(
+            driver.SourceError,
+            "source series contains merge commit.*rebase the sol series",
+        ):
+            driver._source(self.root, self.release)
+
+    def test_wrong_terminus_fails_closed(self):
+        real_git = driver._git
+
+        def git(root, *arguments):
+            value = real_git(root, *arguments)
+            if arguments[:3] == ("log", "--reverse", "--format=%H%x09%s"):
+                lines = value.splitlines()
+                lines[-1] = f"{self.base}\t{lines[-1].split(chr(9), 1)[1]}"
+                return "\n".join(lines)
+            return value
+
+        with mock.patch.object(driver, "_git", side_effect=git):
+            with self.assertRaisesRegex(
+                driver.SourceError,
+                "source series does not end at source.commit.*restore the complete",
+            ):
+                driver._source(self.root, self.release)
+
+    def test_first_parent_must_be_pinned_base(self):
+        first = self.expected[0][0]
+        real_git = driver._git
+
+        def git(root, *arguments):
+            if arguments == ("rev-parse", f"{first}^"):
+                return self.tip
+            return real_git(root, *arguments)
+
+        with mock.patch.object(driver, "_git", side_effect=git):
+            with self.assertRaisesRegex(
+                driver.SourceError,
+                "source series does not begin immediately after the pinned upstream "
+                "base.*fetch or restore the complete base-exclusive series",
+            ):
+                driver._source(self.root, self.release)
 
 
 class DriverPreflightTest(unittest.TestCase):
@@ -76,6 +211,7 @@ class DriverPreflightTest(unittest.TestCase):
         errors = (
             archive.ArchiveError("tar broke"),
             manifest.ManifestError("tool broke"),
+            driver.SourceError("source broke"),
         )
         for error in errors:
             with self.subTest(error=type(error).__name__):

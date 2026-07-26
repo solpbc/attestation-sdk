@@ -12,6 +12,13 @@ from release_rail import authority  # noqa: E402
 
 
 class AuthorityTest(unittest.TestCase):
+    def load_mutated(self, mutator):
+        source = authority.load().path.read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "targets.toml"
+            path.write_text(mutator(source), encoding="utf-8")
+            return authority.load(path)
+
     def test_landed_authority_is_complete(self):
         data = authority.load()
         self.assertEqual(tuple(data.targets), authority.TARGET_IDS)
@@ -24,6 +31,7 @@ class AuthorityTest(unittest.TestCase):
         self.assertIn("required_tools", data.targets["macos-arm64"])
         self.assertNotIn("required_tool_versions", data.targets["macos-arm64"])
         self.assertEqual(data.release["sol_revision"], 2)
+        self.assertRegex(data.release["upstream_base_commit"], r"^[0-9a-f]{40}$")
         self.assertEqual(
             data.targets["macos-arm64"]["macho_install_id"],
             "@rpath/libnvat.1.dylib",
@@ -64,6 +72,52 @@ class AuthorityTest(unittest.TestCase):
             path.write_text(source, encoding="utf-8")
             with self.assertRaisesRegex(authority.AuthorityError, "unknown fields: surprise"):
                 authority.load(path)
+
+    def test_upstream_base_pin_is_required_and_validated(self):
+        line = "upstream_base_commit = "
+        landed = authority.load().release["upstream_base_commit"]
+        cases = (
+            (
+                "missing",
+                lambda source: "\n".join(
+                    row for row in source.splitlines() if not row.startswith(line)
+                )
+                + "\n",
+                "release is missing fields: upstream_base_commit",
+            ),
+            (
+                "short",
+                lambda source: source.replace(
+                    f'{line}"{landed}"', f'{line}"{landed[:-1]}"'
+                ),
+                "release.upstream_base_commit must be 40 lowercase hex digits",
+            ),
+            (
+                "uppercase",
+                lambda source: source.replace(
+                    f'{line}"{landed}"', f'{line}"{landed.upper()}"'
+                ),
+                "release.upstream_base_commit must be 40 lowercase hex digits",
+            ),
+            (
+                "non-hex",
+                lambda source: source.replace(
+                    f'{line}"{landed}"', f'{line}"{"g" * 40}"'
+                ),
+                "release.upstream_base_commit must be 40 lowercase hex digits",
+            ),
+            (
+                "non-string",
+                lambda source: source.replace(
+                    f'{line}"{landed}"', f"{line}{'1' * 40}"
+                ),
+                "release.upstream_base_commit must be 40 lowercase hex digits",
+            ),
+        )
+        for label, mutate, message in cases:
+            with self.subTest(case=label):
+                with self.assertRaisesRegex(authority.AuthorityError, message):
+                    self.load_mutated(mutate)
 
     def test_accessor_reports_incompatible_forced_target(self):
         result = subprocess.run(

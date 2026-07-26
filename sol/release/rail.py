@@ -108,6 +108,7 @@ def main() -> int:
         authority.AuthorityError,
         archive.ArchiveError,
         driver.ReleaseError,
+        driver.SourceError,
         gate.GateError,
         manifest.ManifestError,
         set_validator.SetValidationError,
