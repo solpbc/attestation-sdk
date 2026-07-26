@@ -9,7 +9,7 @@ from pathlib import Path
 RELEASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_DIR))
 
-from release_rail import archive, authority, elf, fixtures, runtime, set_validator  # noqa: E402
+from release_rail import apple, archive, authority, elf, fixtures, runtime, set_validator  # noqa: E402
 from support import (  # noqa: E402
     SOURCE,
     host_archive_target,
@@ -175,7 +175,7 @@ class SetValidatorTest(unittest.TestCase):
         ):
             self.validate()
 
-    def test_runtime_evidence_presence_and_shape_are_target_specific(self):
+    def test_platform_evidence_presence_and_shape_are_target_specific(self):
         linux = self.quartets[authority.TARGET_IDS[0]]["manifest"]
         macos = self.quartets[authority.TARGET_IDS[2]]["manifest"]
         cases = (
@@ -198,6 +198,26 @@ class SetValidatorTest(unittest.TestCase):
                                 "manifest"
                             ].read_text()
                         )["build_tools"][runtime.EVIDENCE_KEY]
+                    }
+                ),
+            ),
+            (
+                macos,
+                lambda value: value["build_tools"].pop(apple.EVIDENCE_KEY),
+            ),
+            (
+                macos,
+                lambda value: value["build_tools"][apple.EVIDENCE_KEY].update(
+                    architecture="x86_64"
+                ),
+            ),
+            (
+                self.quartets[authority.TARGET_IDS[0]]["manifest"],
+                lambda value: value["build_tools"].update(
+                    {
+                        apple.EVIDENCE_KEY: json.loads(macos.read_text())[
+                            "build_tools"
+                        ][apple.EVIDENCE_KEY]
                     }
                 ),
             ),

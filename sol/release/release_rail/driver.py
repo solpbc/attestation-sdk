@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from . import archive, authority, gate, manifest, runtime, set_validator, transaction
+from . import apple, archive, authority, gate, manifest, runtime, set_validator, transaction
 
 
 class ReleaseError(RuntimeError):
@@ -277,7 +277,7 @@ def _build(
                 "-DBUILD_TESTING=OFF",
                 "-DBUILD_SHARED_LIBS=ON",
                 "-DCMAKE_BUILD_TYPE=Release",
-                "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0",
+                f"-DCMAKE_OSX_DEPLOYMENT_TARGET={target['abi_floor']['macos']}",
             ],
             cwd=root,
             env=environment,
@@ -520,6 +520,9 @@ def _preflight(
             f"before retrying:\n{dirty}"
         )
     selection = runtime.select(target) if target["host_os"] == "Linux" else None
+    apple_evidence = (
+        apple.preflight(target) if target["host_os"] == "Darwin" else None
+    )
     if selection is not None:
         _ownership_probe(selection, target)
     manifest.capture_build_tools(
@@ -527,6 +530,7 @@ def _preflight(
         root / ".release-preflight-no-cmake-cache",
         _tool_invoker(root, target, selection),
         runtime_evidence=selection.evidence if selection is not None else None,
+        apple_evidence=apple_evidence,
     )
     return data, target, selection
 
@@ -595,6 +599,11 @@ def release(root: Path, target_id: str | None) -> dict[str, Path]:
             build_dir,
             _tool_invoker(root, target, selection),
             runtime_evidence=selection.evidence if selection is not None else None,
+            apple_evidence=(
+                apple.resolve(target, build_dir)
+                if target["host_os"] == "Darwin"
+                else None
+            ),
         )
         value = manifest.build(
             release=data.release,
