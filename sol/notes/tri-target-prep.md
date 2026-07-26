@@ -711,3 +711,114 @@ $ sha256sum /home/jer/projects/attestation-sdk/dist/libnvat-linux-x86_64-1.2.2-s
 
 This proves the validation did not change the accepted baseline in the other
 checkout.
+
+### Post-remediation native x86_64 re-run
+
+The audit remediation changed the runtime directory counter and quartet
+promotion primitive. Both paths were exercised again from clean commit
+`89029eae58fbb474375ea3a373681d32cf1cee55`.
+
+```text
+$ hop check -n 260 -- make release TARGET=linux-x86_64
+--ca-bundle: CA bundle path '/nonexistent/path' from --ca-bundle does not exist or is not readable; provide a readable file with --ca-bundle or NVAT_CA_BUNDLE.
+Run with --help for more information.
+runtime, layout, and quartet hash gates passed
+--ca-bundle: CA bundle path '/nonexistent/path' from --ca-bundle does not exist or is not readable; provide a readable file with --ca-bundle or NVAT_CA_BUNDLE.
+Run with --help for more information.
+runtime, layout, and quartet hash gates passed
+/home/jer/.hopper/worktrees/6gey4qmd/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz
+/home/jer/.hopper/worktrees/6gey4qmd/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz.sha256
+/home/jer/.hopper/worktrees/6gey4qmd/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json
+/home/jer/.hopper/worktrees/6gey4qmd/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json.sha256
+hop check: `make release TARGET=linux-x86_64` exited 0, showing last 260 of 2859 lines
+```
+
+The two identical success blocks are the Fedora and Tumbleweed child-digest
+runtime gates. Each ran the new hidden-aware count loop before printing its
+success line. This proves the exact visible layout still passes in both minimal
+images and the preserved eager CA-path evidence still names both the path and
+the `--ca-bundle` tier.
+
+The promoted quartet consisted only of ordinary files with link count one, and
+no file with link count greater than one remained under owned staging:
+
+```text
+$ stat -c '%h %F %n' dist/libnvat-linux-x86_64-1.2.2-sol.2-*
+1 regular file dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json
+1 regular file dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json.sha256
+1 regular file dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz
+1 regular file dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz.sha256
+
+$ find dist/.staging -maxdepth 3 -type f -links +1 -printf '%n %p\n'
+[no output]
+```
+
+This proves `os.link()` created each destination without clobbering and the
+transaction then unlinked every staging-side quartet entry, leaving no stray
+hardlink.
+
+A scratch copy of the extracted tree was given one otherwise-unlisted dotfile:
+
+```text
+$ ls -la /tmp/tri-target-hidden-proof.kd5cBQ
+total 12
+drwxr-xr-x.   5 jer  jer    140 Jul 26 12:57 .
+drwxrwxrwt. 391 root root  9480 Jul 26 12:57 ..
+-rw-r--r--.   1 jer  jer      0 Jul 26 12:57 .unexpected
+-rw-r--r--.   1 jer  jer  11348 Jul 26 12:53 LICENSE
+drwxr-xr-x.   2 jer  jer     60 Jul 26 12:57 bin
+drwxr-xr-x.   2 jer  jer    100 Jul 26 12:57 lib
+drwxr-xr-x.   3 jer  jer     80 Jul 26 12:57 share
+
+$ hop check -n 80 -- sol/release/runtime-gate.sh /tmp/tri-target-hidden-proof.kd5cBQ dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz.sha256 dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json.sha256 dist/.staging/linux-x86_64-1.2.2-sol.2/layout.tsv dist/.staging/linux-x86_64-1.2.2-sol.2/counts.tsv linux
+hop check: `sol/release/runtime-gate.sh /tmp/tri-target-hidden-proof.kd5cBQ dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz.sha256 dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json.sha256 dist/.staging/linux-x86_64-1.2.2-sol.2/layout.tsv dist/.staging/linux-x86_64-1.2.2-sol.2/counts.tsv linux` exited 1
+```
+
+The gate exited at the root-directory count before launching `nvattest`. This
+proves `.unexpected` is now counted; the former `"$checked"/*` expansion would
+have ignored it. The scratch tree was removed after this proof.
+
+The new quartet hashes were:
+
+```text
+$ sha256sum dist/libnvat-linux-x86_64-1.2.2-sol.2-*
+2b5fdc29dd5d70cf5943ecc7ed2fe32cc6b213b81454e24794ee60bef792efbc  dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json
+36f8e23b20e9e32ba9bdaeb07beefa69a3d06e760e397ca4d19f101b60dd9a73  dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json.sha256
+5f2e664b6cbbb4fc22c89d274c7952d3a32415da0561aa7729443a6d05efced9  dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz
+026600927a81c08439ea85c3398a81e5b908da43fe548a9ba585260f10295a5e  dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz.sha256
+```
+
+These do not equal the earlier archive `df1589ef…` quartet because the
+reproducibility inputs are intentionally different: the earlier run was at a
+different source commit, while this run binds commit `89029ea…` and
+`SOURCE_DATE_EPOCH=1785092033`. The changed epoch affects both normalized tar
+headers and the vendored OpenSSL build string:
+
+```text
+$ tar -xOf dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz lib/libnvat.so.1.2.2 | strings | grep '^built on:'
+built on: Sun Jul 26 18:53:53 2026 UTC
+
+$ date -u -d @1785092033 '+SOURCE_DATE_EPOCH_UTC=%a %b %d %H:%M:%S %Y UTC'
+SOURCE_DATE_EPOCH_UTC=Sun Jul 26 18:53:53 2026 UTC
+
+$ python3 -c 'import json; value=json.load(open("dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json")); print("source.commit="+value["source"]["commit"]); print("source.source_date_epoch="+str(value["source"]["source_date_epoch"]))'
+source.commit=89029eae58fbb474375ea3a373681d32cf1cee55
+source.source_date_epoch=1785092033
+```
+
+The manifest and its sidecar must additionally change because they bind the
+new source commit, rewritten commit series, new artifact hash, and size. This
+is not a same-input reproducibility regression; it is the expected result of
+the deliberately changed source identity and source epoch.
+
+Finally, the remediated set validator reported the two genuinely absent native
+targets:
+
+```text
+$ hop check -n 80 -- python3 sol/release/rail.py validate-set --dist dist
+hop check: `python3 sol/release/rail.py validate-set --dist dist` exited 2
+release rail error: missing target: linux-aarch64; missing target: macos-arm64; recover by collecting each missing quartet: on its native host run `make release TARGET=linux-aarch64`; on its native host run `make release TARGET=macos-arm64`
+```
+
+This proves single-quartet discovery still fails closed with both missing
+targets named after the validator gained independent archive static gates.
