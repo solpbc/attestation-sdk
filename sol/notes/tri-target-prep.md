@@ -561,3 +561,153 @@ The mutation command exited 1. The mutation was immediately reverted. This
 proves the suite rejects the precise architecture defect: an aarch64 gate that
 accepts an x86_64 ELF (and, as the paired assertion shows, rejects its native
 AArch64 ELF).
+
+## Native validation
+
+This validation ran on the lode's native Linux x86_64 host. It does not provide
+native execution evidence for Linux aarch64 or macOS arm64.
+
+### Image and real release
+
+```text
+$ hop check -n 120 -- make image
+Successfully tagged localhost/attestation-sdk-ci:latest
+hop check: `make image` exited 0
+
+$ hop check -n 260 -- make release TARGET=linux-x86_64
+--ca-bundle: CA bundle path '/nonexistent/path' from --ca-bundle does not exist or is not readable; provide a readable file with --ca-bundle or NVAT_CA_BUNDLE.
+Run with --help for more information.
+runtime, layout, and quartet hash gates passed
+--ca-bundle: CA bundle path '/nonexistent/path' from --ca-bundle does not exist or is not readable; provide a readable file with --ca-bundle or NVAT_CA_BUNDLE.
+Run with --help for more information.
+runtime, layout, and quartet hash gates passed
+/home/jer/.hopper/worktrees/6gey4qmd/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz
+/home/jer/.hopper/worktrees/6gey4qmd/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz.sha256
+/home/jer/.hopper/worktrees/6gey4qmd/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json
+/home/jer/.hopper/worktrees/6gey4qmd/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json.sha256
+hop check: `make release TARGET=linux-x86_64` exited 0
+```
+
+This proves both child-digest bare images executed the runtime, layout, eager
+CA failure, and independent quartet-hash gates. The first attempts exposed that
+the runtime gate assumed `find`, then `awk`, existed in the minimal Tumbleweed
+image. Commits `d4a0344` and `1780d28` removed those assumptions.
+
+The real schema-v2 manifest reported:
+
+```text
+schema_version=2
+release.version=1.2.2-sol.2
+release.sol_revision=2
+source.commit=1780d281c24bd0d7d0450157c2e6cb321807a2ba
+source.upstream_base_commit=73c032ebff680ca6d2ba06f4006b511491b71ce9
+source.source_date_epoch=1785090113
+artifact.name=libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz
+artifact.size=7655164
+artifact.sha256=3ba6b614730edb1b21872cbb31c461d2af7c5ed413629e144bc546461487058f
+build_tools.compiler=GCC 14.2.1
+build_tools.cmake=cmake 4.4.0
+build_tools.rustc=rustc 1.88.0
+build_tools.cargo=cargo 1.88.0
+build_tools.tar=GNU tar 1.35
+build_tools.xz=xz 5.8.3
+build_tools.python=CPython 3.13.13
+```
+
+The full manifest also contained the ordered archive-member inventory, twelve
+dependency pins, the exact build and gate image references, CA snapshot, xz
+settings, and ordered Sol commit series. No normalized tool value contained an
+absolute path, host name, build date, or Rust commit hash. This proves real
+construction populated every schema-v2 section without host-specific tool
+evidence.
+
+### Overwrite refusal and reproducibility
+
+The original overwrite error had a traceback and no recovery command. After
+that defect was fixed, the retained quartet failed closed with:
+
+```text
+$ hop check -n 60 -- make release TARGET=linux-x86_64
+hop check: `make release TARGET=linux-x86_64` exited 2
+release rail error: promotion refuses to overwrite: /home/jer/.hopper/worktrees/6gey4qmd/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz; move the existing quartet aside with `mkdir -p /home/jer/.hopper/worktrees/6gey4qmd/dist/retained-linux-x86_64-1.2.2-sol.2 && mv /home/jer/.hopper/worktrees/6gey4qmd/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz /home/jer/.hopper/worktrees/6gey4qmd/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz.sha256 /home/jer/.hopper/worktrees/6gey4qmd/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json /home/jer/.hopper/worktrees/6gey4qmd/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json.sha256 /home/jer/.hopper/worktrees/6gey4qmd/dist/retained-linux-x86_64-1.2.2-sol.2`, then retry
+```
+
+The first real double construction then exposed OpenSSL's wall-clock
+`built on:` string in `libnvat.so`. Commit `9af3828` exports the commit epoch as
+`SOURCE_DATE_EPOCH`. Two subsequent full builds from that identical clean
+commit produced:
+
+```text
+$ sha256sum run-a/* run-b/*
+2563ec704332eddfd37cc6565b9ab2b7e9549e6f03ecee5b5e57a7219b84eda7  run-a/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json
+d605a30502f193bcb72e00a9f36f859b33c6edd9f517fff12fa8f2cfe54b85d9  run-a/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json.sha256
+df1589ef2edfe9ba4061e86b2381c67d89f16efc38ddd9b137ac94d232d07f37  run-a/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz
+158e9aa68a61e39a25d6403a3cb5c904c8c9597c1035e5f6722cddc4017b5dc2  run-a/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz.sha256
+2563ec704332eddfd37cc6565b9ab2b7e9549e6f03ecee5b5e57a7219b84eda7  run-b/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json
+d605a30502f193bcb72e00a9f36f859b33c6edd9f517fff12fa8f2cfe54b85d9  run-b/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json.sha256
+df1589ef2edfe9ba4061e86b2381c67d89f16efc38ddd9b137ac94d232d07f37  run-b/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz
+158e9aa68a61e39a25d6403a3cb5c904c8c9597c1035e5f6722cddc4017b5dc2  run-b/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz.sha256
+all four quartet files are byte-identical
+```
+
+This proves the narrow same-target, same-host, same-pinned-toolchain
+reproducibility claim for the only native target available here.
+
+### Complete-set validator
+
+With only the real x86_64 quartet present:
+
+```text
+$ hop check -n 60 -- python3 sol/release/rail.py validate-set
+hop check: `python3 sol/release/rail.py validate-set` exited 2
+release rail error: missing target: linux-aarch64; missing target: macos-arm64
+```
+
+Synthesized aarch64 and macOS fixture quartets completed the set. The validator
+accepted it, then rejected each rehashed manifest mutation:
+
+```text
+$ python3 sol/release/rail.py validate-set
+complete release set validated: 1.2.2-sol.2
+
+$ hop check -n 60 -- python3 sol/release/rail.py validate-set
+hop check: `python3 sol/release/rail.py validate-set` exited 2
+release rail error: cross-target mismatch: release.sol_revision: linux-x86_64=2, linux-aarch64=99, macos-arm64=2
+
+$ hop check -n 60 -- python3 sol/release/rail.py validate-set
+hop check: `python3 sol/release/rail.py validate-set` exited 2
+release rail error: cross-target mismatch: source.upstream_base_commit: linux-x86_64="73c032ebff680ca6d2ba06f4006b511491b71ce9", linux-aarch64="73c032ebff680ca6d2ba06f4006b511491b71ce9", macos-arm64="ffffffffffffffffffffffffffffffffffffffff"
+
+$ hop check -n 60 -- python3 sol/release/rail.py validate-set
+hop check: `python3 sol/release/rail.py validate-set` exited 2
+release rail error: cross-target mismatch: source.source_date_epoch: linux-x86_64=1785090636, linux-aarch64=1785090637, macos-arm64=1785090636
+```
+
+This proves complete-set discovery and the three required shared-identity
+comparisons fail closed. The synthesized foreign-target fixtures were removed
+afterward.
+
+### Full gate and retained baseline
+
+```text
+$ hop check -n 240 -- make ci
+100% tests passed out of 64
+hop check: `make ci` exited 0
+```
+
+The full gate passed all 64 enabled C++ tests (four network tests remained
+disabled by the existing CI subset) and all release-rail tests. Static
+ShellCheck also exited 0.
+
+Finally, the accepted `sol.1` files in the separate checkout remained
+byte-identical to the Q0 baseline:
+
+```text
+$ sha256sum /home/jer/projects/attestation-sdk/dist/libnvat-linux-x86_64-1.2.2-sol.1-archive.manifest.json /home/jer/projects/attestation-sdk/dist/libnvat-linux-x86_64-1.2.2-sol.1-archive.tar.xz /home/jer/projects/attestation-sdk/dist/libnvat-linux-x86_64-1.2.2-sol.1-archive.tar.xz.sha256
+91d74edd1fd163670fe138353fc5b9ff7a540a9052c2453d6440c0917f4bc38d  /home/jer/projects/attestation-sdk/dist/libnvat-linux-x86_64-1.2.2-sol.1-archive.manifest.json
+60ef75d1873e7129f03ea80d107d92b2ef216d2a8815958617b30d9c721d474a  /home/jer/projects/attestation-sdk/dist/libnvat-linux-x86_64-1.2.2-sol.1-archive.tar.xz
+3c6a82975e5590fd410d382561c7b23f0493c997b9ebc71d5f4b3e576b6bd37d  /home/jer/projects/attestation-sdk/dist/libnvat-linux-x86_64-1.2.2-sol.1-archive.tar.xz.sha256
+```
+
+This proves the validation did not change the accepted baseline in the other
+checkout.

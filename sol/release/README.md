@@ -75,8 +75,11 @@ layout, and shared source/release identity.
 The lode exercises synthesized ELF and Mach-O parsing/policy fixtures,
 authority validation, deterministic archive/sidecar fixtures for every
 authority target, schema-v2 manifests, transaction rollback injection, complete
-set validation, ShellCheck, and rejected-target preflight behavior. It does not
-claim native construction proof for foreign hosts.
+set validation, ShellCheck, and rejected-target preflight behavior. It also
+constructed a real native `linux-x86_64` release and passed its static gates,
+both bare-container runtime gates, a same-commit byte-for-byte rebuild, and the
+full C++ CI gate. It did not construct or run native `linux-aarch64` or
+`macos-arm64` code.
 
 ### Post-ship VPE native work
 
