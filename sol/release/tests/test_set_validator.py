@@ -37,7 +37,18 @@ class SetValidatorTest(unittest.TestCase):
         self.quartets[authority.TARGET_IDS[2]]["manifest"].unlink()
         self.quartets[authority.TARGET_IDS[2]]["manifest-sha256"].unlink()
         with self.assertRaisesRegex(
-            set_validator.SetValidationError, "missing target: macos-arm64"
+            set_validator.SetValidationError,
+            "missing target: macos-arm64",
+        ):
+            set_validator.validate(self.dist, self.data, self.version)
+
+    def test_all_missing_targets_are_named(self):
+        for target_id in authority.TARGET_IDS[1:]:
+            self.quartets[target_id]["manifest"].unlink()
+            self.quartets[target_id]["manifest-sha256"].unlink()
+        with self.assertRaisesRegex(
+            set_validator.SetValidationError,
+            "missing target: linux-aarch64; missing target: macos-arm64",
         ):
             set_validator.validate(self.dist, self.data, self.version)
 
