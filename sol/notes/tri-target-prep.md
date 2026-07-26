@@ -822,3 +822,226 @@ release rail error: missing target: linux-aarch64; missing target: macos-arm64; 
 
 This proves single-quartet discovery still fails closed with both missing
 targets named after the validator gained independent archive static gates.
+
+### Runtime selection and pinned provenance native re-run (2026-07-26)
+
+All commands in this subsection ran in
+`/home/jer/.hopper/worktrees/ogw2thlw`. Nothing under
+`/home/jer/projects/attestation-sdk/dist/` was read, written, moved, or
+deleted.
+
+Before construction, a PATH-first executable named `podman` reported a wrong
+product:
+
+```text
+$ hop check env PATH=/tmp/nvattest-wrong-runtime:/usr/local/bin:/usr/bin:/bin make release TARGET=linux-x86_64
+hop check: `env PATH=/tmp/nvattest-wrong-runtime:/usr/local/bin:/usr/bin:/bin make release TARGET=linux-x86_64` exited 2
+./sol/release/release.sh "linux-x86_64"
+release rail error: no usable OCI runtime: podman: podman version reported the wrong product; docker: command not found; install docker; recover by installing a working Podman or local Unix-socket Docker engine
+make: *** [Makefile:59: release] Error 2
+
+$ ls -la
+total 52
+drwxr-xr-x. 1 jer jer   416 Jul 26 13:53 .
+drwxr-xr-x. 1 jer jer    32 Jul 26 13:20 ..
+-rw-r--r--. 1 jer jer    67 Jul 26 13:20 .git
+drwxr-xr-x. 1 jer jer    46 Jul 26 13:20 .github
+-rw-r--r--. 1 jer jer   464 Jul 26 13:20 .gitignore
+-rw-r--r--. 1 jer jer  3499 Jul 26 13:20 CODE_OF_CONDUCT.md
+-rw-r--r--. 1 jer jer  7020 Jul 26 13:20 CONTRIBUTING.md
+-rw-r--r--. 1 jer jer 11348 Jul 26 13:20 LICENSE
+-rw-r--r--. 1 jer jer  2818 Jul 26 13:43 Makefile
+-rw-r--r--. 1 jer jer  4723 Jul 26 13:20 README.md
+-rw-r--r--. 1 jer jer   913 Jul 26 13:20 SECURITY.md
+drwxr-xr-x. 1 jer jer   568 Jul 26 13:55 build
+drwxr-xr-x. 1 jer jer   162 Jul 26 13:20 common-test-data
+drwxr-xr-x. 1 jer jer    50 Jul 26 13:20 dev
+drwxr-xr-x. 1 jer jer    60 Jul 26 13:20 nv-attestation-cli
+drwxr-xr-x. 1 jer jer   202 Jul 26 13:20 nv-attestation-sdk-cpp
+drwxr-xr-x. 1 jer jer   138 Jul 26 13:20 nv-attestation-sdk-rust
+drwxr-xr-x. 1 jer jer   372 Jul 26 13:20 relying_party_policy_examples
+drwxr-xr-x. 1 jer jer    80 Jul 26 13:20 sol
+
+$ test ! -e dist; echo "dist_absent_status=$?"
+dist_absent_status=0
+```
+
+A minimal PATH containing non-executable `podman` and `docker` stubs, plus
+only the commands needed to launch the rail, exercised the neither-present
+case:
+
+```text
+$ hop check env PATH=/tmp/nvattest-no-runtimes make release TARGET=linux-x86_64
+hop check: `env PATH=/tmp/nvattest-no-runtimes make release TARGET=linux-x86_64` exited 2
+./sol/release/release.sh "linux-x86_64"
+release rail error: no usable OCI runtime: podman: command not found; install podman; docker: command not found; install docker; recover by installing a working Podman or local Unix-socket Docker engine
+make: *** [Makefile:59: release] Error 2
+
+$ test ! -e dist; echo "dist_absent_status=$?"
+dist_absent_status=0
+```
+
+The worktree then built its own image. The pre-existing host-global image was
+not treated as build proof:
+
+```text
+$ hop check make image
+hop check: `make image` exited 0
+RUNTIME="$( python3 sol/release/rail.py runtime select )" && \
+	IMAGE="$( python3 sol/release/rail.py runtime image-tag )" && \
+	CI_IMAGE="$( python3 sol/release/rail.py authority build-image "" )" && \
+	"$RUNTIME" build --build-arg CI_IMAGE="$CI_IMAGE" -t "$IMAGE" -f sol/ci/Containerfile sol/ci
+STEP 1/4: FROM quay.io/pypa/manylinux_2_28_x86_64@sha256:a61875a2f84cab7df8de222ff12cabc08ff86eb4ad402ac90ba7bdaed9600cca
+STEP 2/4: RUN dnf install -y     openssl-devel libcurl-devel libxml2-devel xmlsec1-devel xmlsec1-openssl-devel     zlib-devel xz git patch perl-core   && dnf clean all
+--> Using cache 3bcae635fe39e81593813adb67c8107c7459aade1a929d592ab369ef19852c7e
+--> 3bcae635fe39
+STEP 3/4: RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.88.0
+--> Using cache 31b17784fab7a9bf0afde67542fd5db6751f0d66f50c63254576c6fa28eb97c3
+--> 31b17784fab7
+STEP 4/4: ENV PATH="/root/.cargo/bin:${PATH}"
+--> Using cache 3fdc1e574941633de67d8abcf7a08daa6bad804d8e95f612abdacb12b5d349ed
+COMMIT attestation-sdk-ci
+--> 3fdc1e574941
+Successfully tagged localhost/attestation-sdk-ci:latest
+3fdc1e574941633de67d8abcf7a08daa6bad804d8e95f612abdacb12b5d349ed
+```
+
+The native release completed both digest-pinned runtime gates:
+
+```text
+$ hop check make release TARGET=linux-x86_64
+generated 12 dependency pins
+--ca-bundle: CA bundle path '/nonexistent/path' from --ca-bundle does not exist or is not readable; provide a readable file with --ca-bundle or NVAT_CA_BUNDLE.
+Run with --help for more information.
+runtime, layout, and quartet hash gates passed
+--ca-bundle: CA bundle path '/nonexistent/path' from --ca-bundle does not exist or is not readable; provide a readable file with --ca-bundle or NVAT_CA_BUNDLE.
+Run with --help for more information.
+runtime, layout, and quartet hash gates passed
+/home/jer/.hopper/worktrees/ogw2thlw/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz
+/home/jer/.hopper/worktrees/ogw2thlw/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz.sha256
+/home/jer/.hopper/worktrees/ogw2thlw/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json
+/home/jer/.hopper/worktrees/ogw2thlw/dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json.sha256
+hop check: `make release TARGET=linux-x86_64` exited 0, showing last 50 of 2859 lines
+```
+
+The manifest and live Git range agreed exactly:
+
+```text
+$ python3 - "$manifest_path"
+source.commit=786fe9060d552d0262e58bc67666b1a698e65ec5
+source.upstream_base_commit=73c032ebff680ca6d2ba06f4006b511491b71ce9
+source.sol_series_length=27
+source.sol_series_first=9f15d44aa65c6603b7458cb343fa68d67c34634d
+source.sol_series_last=786fe9060d552d0262e58bc67666b1a698e65ec5
+build_tools.container_runtime={"client":{"name":"Podman Engine","version":"5.8.3"},"engine":{"name":"Podman Engine","version":"5.8.3","os":"linux","architecture":"amd64"}}
+
+$ git rev-parse HEAD
+786fe9060d552d0262e58bc67666b1a698e65ec5
+
+$ git rev-list --count 73c032ebff680ca6d2ba06f4006b511491b71ce9..HEAD
+27
+
+$ git rev-list --merges --count 73c032ebff680ca6d2ba06f4006b511491b71ce9..HEAD
+0
+
+$ python3 - "$manifest_path"
+manifest_series_order_matches=true
+```
+
+Ownership and cleanup were observed on the host:
+
+```text
+$ ls -ld build dist
+drwxr-xr-x. 1 jer jer 582 Jul 26 14:05 build
+drwxr-xr-x. 1 jer jer 448 Jul 26 14:06 dist
+
+$ stat -c '%n mode=%A(%a) owner=%U(%u) group=%G(%g)' build dist
+build mode=drwxr-xr-x(755) owner=jer(1000) group=jer(1000)
+dist mode=drwxr-xr-x(755) owner=jer(1000) group=jer(1000)
+
+$ hop check make clean
+hop check: `make clean` exited 0
+rm -rf build
+
+$ ls -ld build
+ls: cannot access 'build': No such file or directory
+[exit 2]
+
+$ stat -c '%n mode=%A(%a) owner=%U(%u) group=%G(%g)' dist
+dist mode=drwxr-xr-x(755) owner=jer(1000) group=jer(1000)
+```
+
+Before the retained-quartet failure, the quartet hashes and successful-run
+staging-tree fingerprint were:
+
+```text
+$ sha256sum dist/libnvat-linux-x86_64-1.2.2-sol.2-* | sort
+ace1dd494dc7f4e308ed85b903c86fc05bd1d384f5682a0e4888ba3e9c65bf47  dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json.sha256
+b78108872d5417e7724d0dc1eddaff6314a2173c74ed255a37f84099eb47d882  dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json
+d80bf4226442559d0765a201ad94120dcd34b46a9d05cc337832bb1cef01019d  dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz
+e5c0e86dd10880f12deafe7b9cd76bf452acbdd679dd124574ebef90f65dd3c2  dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz.sha256
+
+$ find dist/.staging -printf '%y %m %u %g %s %T@ %p %l\n' | sort | sha256sum
+1ad82e035777381c8cd7e5abfd0870b6dec988703411f96835f89debf8e04f28  -
+```
+
+The real wrong-product container-call path then failed in preflight:
+
+```text
+$ hop check env PATH=/tmp/nvattest-wrong-runtime:/usr/local/bin:/usr/bin:/bin make release TARGET=linux-x86_64
+hop check: `env PATH=/tmp/nvattest-wrong-runtime:/usr/local/bin:/usr/bin:/bin make release TARGET=linux-x86_64` exited 2
+./sol/release/release.sh "linux-x86_64"
+release rail error: no usable OCI runtime: podman: podman version reported the wrong product; docker: command not found; install docker; recover by installing a working Podman or local Unix-socket Docker engine
+make: *** [Makefile:59: release] Error 2
+```
+
+Afterward the four hashes, staging fingerprint, and exact top-level quartet
+were unchanged:
+
+```text
+$ sha256sum dist/libnvat-linux-x86_64-1.2.2-sol.2-* | sort
+ace1dd494dc7f4e308ed85b903c86fc05bd1d384f5682a0e4888ba3e9c65bf47  dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json.sha256
+b78108872d5417e7724d0dc1eddaff6314a2173c74ed255a37f84099eb47d882  dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json
+d80bf4226442559d0765a201ad94120dcd34b46a9d05cc337832bb1cef01019d  dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz
+e5c0e86dd10880f12deafe7b9cd76bf452acbdd679dd124574ebef90f65dd3c2  dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz.sha256
+
+$ find dist/.staging -printf '%y %m %u %g %s %T@ %p %l\n' | sort | sha256sum
+1ad82e035777381c8cd7e5abfd0870b6dec988703411f96835f89debf8e04f28  -
+
+$ find dist -maxdepth 1 -type f -printf '%f\n' | sort
+libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json
+libnvat-linux-x86_64-1.2.2-sol.2-archive.manifest.json.sha256
+libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz
+libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz.sha256
+```
+
+The `.staging` tree shown here belongs to the successful release. Its identical
+before/after fingerprint proves the failed preflight created no new staging
+residue. A post-staging failure was not fabricated: with the retained quartet
+at its authoritative destinations, overwrite refusal precedes construction,
+and construction failures deliberately retain owned staging for diagnosis.
+
+The complete-set validator still named both genuinely absent native targets:
+
+```text
+$ hop check python3 sol/release/rail.py validate-set --dist dist
+hop check: `python3 sol/release/rail.py validate-set --dist dist` exited 2
+release rail error: missing target: linux-aarch64; missing target: macos-arm64; recover by collecting each missing quartet: on its native host run `make release TARGET=linux-aarch64`; on its native host run `make release TARGET=macos-arm64`
+```
+
+Finally, the promoted archive was extracted only to `/tmp` for the F5 string
+counts:
+
+```text
+$ scratch_dir=$(mktemp -d /tmp/runtime-provenance-f5.XXXXXX)
+$ tar -C "$scratch_dir" -xJf dist/libnvat-linux-x86_64-1.2.2-sol.2-archive.tar.xz
+$ printf '/root/.cargo/registry/ count='; strings "$scratch_dir/lib/libnvat.so.1.2.2" | grep -F -c '/root/.cargo/registry/'
+/root/.cargo/registry/ count=226
+$ printf '/src/build/release/ count='; strings "$scratch_dir/lib/libnvat.so.1.2.2" | grep -F -c '/src/build/release/'
+/src/build/release/ count=36
+$ ls -l "$scratch_dir/lib/libnvat.so.1.2.2"
+-rwxr-xr-x. 1 jer jer 33256784 Jul 26 14:02 /tmp/runtime-provenance-f5.rZcpwW/lib/libnvat.so.1.2.2
+```
+
+Docker was not executed on this lode. Docker and native aarch64 proof remain
+VPE-direct work on Spark; no simulated Docker output is recorded here.
