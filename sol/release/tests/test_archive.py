@@ -9,7 +9,7 @@ RELEASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_DIR))
 
 from release_rail import archive, authority, manifest  # noqa: E402
-from support import SOURCE, TOOLS, host_archive_target, make_stage  # noqa: E402
+from support import SOURCE, host_archive_target, make_stage, tools_for  # noqa: E402
 
 
 class ArchiveReproducibilityTest(unittest.TestCase):
@@ -47,7 +47,7 @@ class ArchiveReproducibilityTest(unittest.TestCase):
                             source=SOURCE,
                             artifact_path=artifact,
                             dependencies=[],
-                            build_tools=TOOLS,
+                            build_tools=tools_for(target),
                         )
                         manifest_path = run_root / (
                             artifact.name.removesuffix(".tar.xz") + ".manifest.json"

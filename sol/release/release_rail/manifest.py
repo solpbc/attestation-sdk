@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
-from . import archive
+from . import archive, runtime
 
 
 class ManifestError(RuntimeError):
@@ -17,6 +17,7 @@ class ManifestError(RuntimeError):
 
 
 _VERSION = re.compile(r"(?<![0-9])([0-9]+(?:\.[0-9]+){1,3})(?![0-9])")
+BUILD_TOOL_KEYS = ("compiler", "cmake", "rustc", "cargo", "tar", "xz", "python")
 
 
 def _compiler_from_cache(build_dir: Path, fallback: str) -> str:
@@ -104,10 +105,12 @@ def capture_build_tools(
     target: dict[str, Any],
     build_dir: Path,
     invoker: Callable[[str, str], str | None] | None = None,
+    *,
+    runtime_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     commands = list(target["required_tools"])
     compiler_command = _compiler_from_cache(build_dir, commands[0])
-    keys = ("compiler", "cmake", "rustc", "cargo", "tar", "xz", "python")
+    keys = BUILD_TOOL_KEYS
     if len(commands) != len(keys):
         raise ManifestError(
             f"{target['id']}: required_tools must contain exactly {len(keys)} entries"
@@ -121,7 +124,41 @@ def capture_build_tools(
             if output is not None
             else _capture(key, command)
         )
+    if target["host_os"] == "Linux":
+        if runtime_evidence is None:
+            raise ManifestError(f"{target['id']}: missing container runtime evidence")
+        try:
+            evidence[runtime.EVIDENCE_KEY] = runtime.validate_evidence(
+                runtime_evidence, target
+            )
+        except runtime.RuntimeSelectionError as error:
+            raise ManifestError(f"{target['id']}: {error}") from error
+    elif runtime_evidence is not None:
+        raise ManifestError(f"{target['id']}: container runtime evidence is not permitted")
     return evidence
+
+
+def validate_build_tools(target: dict[str, Any], value: Any) -> None:
+    if not isinstance(value, dict):
+        raise ManifestError(f"{target['id']}: build_tools must be an object")
+    expected = BUILD_TOOL_KEYS + (
+        (runtime.EVIDENCE_KEY,) if target["host_os"] == "Linux" else ()
+    )
+    if tuple(value) != expected:
+        raise ManifestError(f"{target['id']}: build_tools has invalid fields")
+    for key in BUILD_TOOL_KEYS:
+        tool = value[key]
+        if (
+            not isinstance(tool, dict)
+            or tuple(tool) != ("name", "version")
+            or any(not isinstance(tool[field], str) or not tool[field] for field in tool)
+        ):
+            raise ManifestError(f"{target['id']}: invalid build tool evidence: {key}")
+    if target["host_os"] == "Linux":
+        try:
+            runtime.validate_evidence(value[runtime.EVIDENCE_KEY], target)
+        except runtime.RuntimeSelectionError as error:
+            raise ManifestError(f"{target['id']}: {error}") from error
 
 
 def build(
@@ -134,6 +171,7 @@ def build(
     dependencies: list[dict[str, Any]],
     build_tools: dict[str, Any],
 ) -> dict[str, Any]:
+    validate_build_tools(target, build_tools)
     return {
         "schema_version": 2,
         "release": {

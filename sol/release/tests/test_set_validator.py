@@ -9,7 +9,7 @@ from pathlib import Path
 RELEASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_DIR))
 
-from release_rail import archive, authority, elf, fixtures, set_validator  # noqa: E402
+from release_rail import archive, authority, elf, fixtures, runtime, set_validator  # noqa: E402
 from support import (  # noqa: E402
     SOURCE,
     host_archive_target,
@@ -174,6 +174,46 @@ class SetValidatorTest(unittest.TestCase):
             rf"all targets.*{stale}",
         ):
             self.validate()
+
+    def test_runtime_evidence_presence_and_shape_are_target_specific(self):
+        linux = self.quartets[authority.TARGET_IDS[0]]["manifest"]
+        macos = self.quartets[authority.TARGET_IDS[2]]["manifest"]
+        cases = (
+            (
+                linux,
+                lambda value: value["build_tools"].pop(runtime.EVIDENCE_KEY),
+            ),
+            (
+                linux,
+                lambda value: value["build_tools"].update(
+                    {runtime.EVIDENCE_KEY: {"client": {}}}
+                ),
+            ),
+            (
+                macos,
+                lambda value: value["build_tools"].update(
+                    {
+                        runtime.EVIDENCE_KEY: json.loads(
+                            self.quartets[authority.TARGET_IDS[0]][
+                                "manifest"
+                            ].read_text()
+                        )["build_tools"][runtime.EVIDENCE_KEY]
+                    }
+                ),
+            ),
+        )
+        for path, mutate in cases:
+            with self.subTest(path=path.name):
+                original = path.read_bytes()
+                sidecar = Path(f"{path}.sha256").read_bytes()
+                rewrite_manifest(path, mutate)
+                with self.assertRaisesRegex(
+                    set_validator.SetValidationError,
+                    "quartet layout mismatch: .*: build_tools",
+                ):
+                    self.validate()
+                path.write_bytes(original)
+                Path(f"{path}.sha256").write_bytes(sidecar)
 
     def test_foreign_archived_binary_fails_with_consistent_hashes(self):
         target = self.data.target(authority.TARGET_IDS[1])

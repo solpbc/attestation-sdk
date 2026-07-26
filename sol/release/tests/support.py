@@ -3,7 +3,7 @@ import os
 import shutil
 from pathlib import Path
 
-from release_rail import archive, elf, fixtures, manifest, set_validator
+from release_rail import archive, elf, fixtures, manifest, runtime, set_validator
 
 
 SOURCE = {
@@ -16,6 +16,25 @@ TOOLS = {
     key: {"name": key, "version": "1.2.3"}
     for key in ("compiler", "cmake", "rustc", "cargo", "tar", "xz", "python")
 }
+
+
+def tools_for(target):
+    tools = dict(TOOLS)
+    if target["host_os"] == "Linux":
+        architecture = {
+            "EM_X86_64": "amd64",
+            "EM_AARCH64": "arm64",
+        }[target["expected_arch"]]
+        tools[runtime.EVIDENCE_KEY] = {
+            "client": {"name": runtime.PODMAN_PRODUCT, "version": "5.8.3"},
+            "engine": {
+                "name": runtime.PODMAN_PRODUCT,
+                "version": "5.8.3",
+                "os": "linux",
+                "architecture": architecture,
+            },
+        }
+    return tools
 
 
 def make_stage(stage: Path, target):
@@ -83,7 +102,7 @@ def make_quartet(dist: Path, data, target, version: str):
         source=SOURCE,
         artifact_path=paths["archive"],
         dependencies=[],
-        build_tools=TOOLS,
+        build_tools=tools_for(target),
     )
     manifest.write(paths["manifest"], value)
     return paths

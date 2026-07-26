@@ -8,11 +8,12 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
 from typing import Any
 
-from . import archive, authority, gate, manifest, set_validator, transaction
+from . import archive, authority, gate, manifest, runtime, set_validator, transaction
 
 
 class ReleaseError(RuntimeError):
@@ -227,24 +228,27 @@ def _build(
     target: dict[str, Any],
     build_dir: Path,
     source_date_epoch: int,
+    selection: runtime.Selection | None,
 ) -> None:
     if target["host_os"] == "Linux":
+        if selection is None:
+            raise ReleaseError("Linux build requires a selected container runtime")
         common = _git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
         _run(
             [
-                "podman",
+                selection.name,
                 "run",
                 "--rm",
                 f"--platform={target['container_platform']}",
                 "-e",
                 f"SOURCE_DATE_EPOCH={source_date_epoch}",
                 "-v",
-                f"{root}:/src:Z",
+                runtime.render_mount(root, "/src", False),
                 "-v",
-                f"{common}:{common}:ro,Z",
+                runtime.render_mount(common, common, True),
                 "-w",
                 "/src",
-                "localhost/attestation-sdk-ci",
+                runtime.LOCAL_IMAGE_TAG,
                 "bash",
                 "-ec",
                 "rm -rf build/release && "
@@ -285,24 +289,28 @@ def _build(
         )
 
 
-def _tool_invoker(root: Path, target: dict[str, Any]):
+def _tool_invoker(
+    root: Path, target: dict[str, Any], selection: runtime.Selection | None
+):
     if target["host_os"] != "Linux":
         return None
+    if selection is None:
+        raise ReleaseError("Linux tool capture requires a selected container runtime")
 
     def invoke(key: str, command: str) -> str | None:
         if key not in {"compiler", "cmake", "rustc", "cargo"}:
             return None
         result = subprocess.run(
             [
-                "podman",
+                selection.name,
                 "run",
                 "--rm",
                 f"--platform={target['container_platform']}",
                 "-v",
-                f"{root}:/src:ro,Z",
+                runtime.render_mount(root, "/src", True),
                 "-w",
                 "/src",
-                "localhost/attestation-sdk-ci",
+                runtime.LOCAL_IMAGE_TAG,
                 command,
                 "--version",
             ],
@@ -370,6 +378,7 @@ def _runtime_gates(
     quartet: dict[str, Path],
     target: dict[str, Any],
     checkpoint: Any,
+    selection: runtime.Selection | None,
 ) -> None:
     layout, counts = _write_specs(owned, target)
     script = root / "sol/release/runtime-gate.sh"
@@ -384,25 +393,27 @@ def _runtime_gates(
         "linux",
     ]
     if target["host_os"] == "Linux":
+        if selection is None:
+            raise ReleaseError("Linux runtime gates require a selected container runtime")
         for label, image in zip(
             ("fedora", "tumbleweed"), target["gate_images"], strict=True
         ):
             _run(
                 [
-                    "podman",
+                    selection.name,
                     "run",
                     "--rm",
                     f"--platform={target['container_platform']}",
                     "-v",
-                    f"{extracted}:/artifact:ro,Z",
+                    runtime.render_mount(extracted, "/artifact", True),
                     "-v",
-                    f"{owned}:/release:ro,Z",
+                    runtime.render_mount(owned, "/release", True),
                     "-v",
-                    f"{script}:/gate/runtime-gate.sh:ro,Z",
+                    runtime.render_mount(script, "/gate/runtime-gate.sh", True),
                     "-v",
-                    f"{layout}:/gate/layout.tsv:ro,Z",
+                    runtime.render_mount(layout, "/gate/layout.tsv", True),
                     "-v",
-                    f"{counts}:/gate/counts.tsv:ro,Z",
+                    runtime.render_mount(counts, "/gate/counts.tsv", True),
                     image,
                     "sh",
                     "/gate/runtime-gate.sh",
@@ -429,7 +440,44 @@ def _runtime_gates(
         checkpoint("after-runtime-gate:macos-native")
 
 
-def _preflight(root: Path, target_id: str | None) -> tuple[authority.Authority, dict[str, Any]]:
+def _ownership_probe(selection: runtime.Selection, target: dict[str, Any]) -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        host_directory = Path(directory)
+        probe = host_directory / "probe"
+        try:
+            _run(
+                [
+                    selection.name,
+                    "run",
+                    "--rm",
+                    f"--platform={target['container_platform']}",
+                    "-v",
+                    runtime.render_mount(host_directory, "/ownership", False),
+                    target["gate_images"][0],
+                    "sh",
+                    "-c",
+                    "umask 077; : > /ownership/probe",
+                ],
+                cwd=host_directory,
+            )
+        except ReleaseError as error:
+            raise runtime.RuntimeSelectionError(
+                f"container ownership probe failed for {selection.name} with "
+                f"{target['gate_images'][0]}: {error}"
+            ) from error
+        actual = probe.stat().st_uid if probe.is_file() and not probe.is_symlink() else None
+        expected = os.getuid()
+        if actual != expected:
+            raise runtime.RuntimeSelectionError(
+                f"container ownership mapping failed: {selection.name} created the "
+                f"host probe as uid {actual}, expected invoking uid {expected}; "
+                "configure rootless Docker or userns-remap, or install Podman, then retry"
+            )
+
+
+def _preflight(
+    root: Path, target_id: str | None
+) -> tuple[authority.Authority, dict[str, Any], runtime.Selection | None]:
     data = authority.load()
     compatible = data.compatible_target()
     if not target_id:
@@ -453,16 +501,20 @@ def _preflight(root: Path, target_id: str | None) -> tuple[authority.Authority, 
             "then commit the intended changes or run `git stash push --include-untracked` "
             f"before retrying:\n{dirty}"
         )
+    selection = runtime.select(target) if target["host_os"] == "Linux" else None
+    if selection is not None:
+        _ownership_probe(selection, target)
     manifest.capture_build_tools(
         target,
         root / ".release-preflight-no-cmake-cache",
-        _tool_invoker(root, target),
+        _tool_invoker(root, target, selection),
+        runtime_evidence=selection.evidence if selection is not None else None,
     )
-    return data, target
+    return data, target, selection
 
 
 def release(root: Path, target_id: str | None) -> dict[str, Path]:
-    data, target = _preflight(root, target_id)
+    data, target, selection = _preflight(root, target_id)
     version = _version(root, data)
     names = set_validator.quartet_names(target, version)
     source = _source(root, data.release)
@@ -476,7 +528,7 @@ def release(root: Path, target_id: str | None) -> dict[str, Path]:
         _acquire_ca(data.release, ca)
         checkpoint("after-dependency-acquisition")
         build_dir = root / "build/release"
-        _build(root, target, build_dir, source["source_date_epoch"])
+        _build(root, target, build_dir, source["source_date_epoch"], selection)
         checkpoint("after-build")
         _stage(root, build_dir, stage, target, ca)
         dependencies_json = owned / "dependencies.json"
@@ -521,7 +573,10 @@ def release(root: Path, target_id: str | None) -> dict[str, Path]:
         checkpoint("after-static-extracted-gate")
         dependencies = json.loads(dependencies_json.read_text(encoding="utf-8"))
         tools = manifest.capture_build_tools(
-            target, build_dir, _tool_invoker(root, target)
+            target,
+            build_dir,
+            _tool_invoker(root, target, selection),
+            runtime_evidence=selection.evidence if selection is not None else None,
         )
         value = manifest.build(
             release=data.release,
@@ -534,7 +589,9 @@ def release(root: Path, target_id: str | None) -> dict[str, Path]:
         )
         manifest.write(quartet["manifest"], value)
         checkpoint("after-manifest-creation")
-        _runtime_gates(root, owned, extracted, quartet, target, checkpoint)
+        _runtime_gates(
+            root, owned, extracted, quartet, target, checkpoint, selection
+        )
         return quartet
 
     return transaction.run(

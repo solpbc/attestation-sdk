@@ -1,5 +1,5 @@
 # sol pbc build rail for the attestation-sdk fork (sol/portable branch).
-# All real builds run inside the CI container (podman) — the host needs only podman.
+# Linux containers prefer Podman and fall back to a usable local Docker engine.
 # The vendored dep build (USE_SYSTEM_DEPS=OFF) is used for BOTH ci and release so CI
 # tests the same configuration that ships. (el8 system curl 7.61 predates the URL API
 # the SDK needs, so the system-deps build is not viable on the CI image anyway.)
@@ -7,10 +7,9 @@
 # If cmake fails with "Could not find toolchain" after a CI-image rebuild, the build/
 # dir has a stale toolchain cache — run `make clean` first.
 
-IMAGE := attestation-sdk-ci
 CLI_DIR := nv-attestation-cli
 GIT_COMMON_DIR := $(shell git rev-parse --path-format=absolute --git-common-dir)
-PODMAN_RUN := podman run --rm -v $(CURDIR):/src:Z -v $(GIT_COMMON_DIR):$(GIT_COMMON_DIR):ro,Z -w /src $(IMAGE)
+CONTAINER_RUN := "$$RUNTIME" run --rm -v $(CURDIR):/src:Z -v $(GIT_COMMON_DIR):$(GIT_COMMON_DIR):ro,Z -w /src "$$IMAGE"
 RAIL := python3 sol/release/rail.py
 HOST_TARGET ?=
 
@@ -31,8 +30,10 @@ install: image
 hopper-install: image
 
 image:
-	CI_IMAGE="$$( $(RAIL) authority build-image "$(HOST_TARGET)" )" && \
-		podman build --build-arg CI_IMAGE="$$CI_IMAGE" -t $(IMAGE) -f sol/ci/Containerfile sol/ci
+	RUNTIME="$$( $(RAIL) runtime select )" && \
+		IMAGE="$$( $(RAIL) runtime image-tag )" && \
+		CI_IMAGE="$$( $(RAIL) authority build-image "$(HOST_TARGET)" )" && \
+		"$$RUNTIME" build --build-arg CI_IMAGE="$$CI_IMAGE" -t "$$IMAGE" -f sol/ci/Containerfile sol/ci
 
 rail-test:
 	python3 -m unittest discover -s sol/release/tests -p 'test_*.py'
@@ -44,7 +45,9 @@ ci:
 
 ci-container: image
 	./sol/check-curl-handle-sites.sh
-	$(PODMAN_RUN) bash -ec '\
+	RUNTIME="$$( $(RAIL) runtime select )" && \
+		IMAGE="$$( $(RAIL) runtime image-tag )" && \
+		$(CONTAINER_RUN) bash -ec '\
 		  rm -rf build && \
 		  cmake -S $(CLI_DIR) -B build -DUSE_SYSTEM_NVAT=OFF -DUSE_SYSTEM_DEPS=OFF -DBUILD_TESTING=ON -DBUILD_SHARED_LIBS=ON && \
 		  cmake --build build -j$$(nproc) && \

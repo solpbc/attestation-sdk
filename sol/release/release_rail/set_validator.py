@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from . import archive, authority, gate
+from . import archive, authority, gate, manifest
 
 
 class SetValidationError(ValueError):
@@ -85,6 +85,12 @@ def _validate_one(
         value = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise SetValidationError(f"invalid manifest: {manifest_path}: {error}") from error
+    try:
+        manifest.validate_build_tools(target, value["build_tools"])
+    except (KeyError, manifest.ManifestError) as error:
+        raise SetValidationError(
+            f"quartet layout mismatch: {target_id}: build_tools: {error}"
+        ) from error
     expected_identity = {
         "schema_version": 2,
         "release.version": version,
