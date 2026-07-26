@@ -1,8 +1,10 @@
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 RELEASE_DIR = Path(__file__).resolve().parents[1]
@@ -138,6 +140,26 @@ class AppleToolchainTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(apple.AppleToolchainError, "one configured"):
             apple.resolve(self.target, self.root, self.runner)
+
+    def test_unreadable_compiler_metadata_is_normalized(self):
+        self.write_build()
+        metadata = next(
+            (self.root / "CMakeFiles").glob("*/CMakeCXXCompiler.cmake")
+        )
+        read_text = Path.read_text
+
+        def read(path, *arguments, **keywords):
+            if path == metadata:
+                raise OSError("permission denied")
+            return read_text(path, *arguments, **keywords)
+
+        with mock.patch.object(Path, "read_text", new=read):
+            with self.assertRaisesRegex(
+                apple.AppleToolchainError,
+                rf"cannot read {re.escape(str(metadata))}: permission denied; "
+                "remove the build directory",
+            ):
+                apple.resolve(self.target, self.root, self.runner)
 
     def test_validator_rejects_malformed_and_target_inconsistent_values(self):
         evidence = self.evidence()
