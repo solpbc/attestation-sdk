@@ -16,6 +16,7 @@ TARGET_IDS = ("linux-x86_64", "linux-aarch64", "macos-arm64")
 _ROOT_KEYS = {"release", "targets"}
 _RELEASE_KEYS = {
     "sol_revision",
+    "upstream_base_commit",
     "ca_snapshot_date",
     "ca_bundle_url",
     "ca_bundle_sha256",
@@ -142,6 +143,12 @@ def load(path: Path | None = None) -> Authority:
         raise AuthorityError(f"release is missing fields: {', '.join(missing_release)}")
     if not re.fullmatch(r"[0-9a-f]{64}", str(release["ca_bundle_sha256"])):
         raise AuthorityError("release.ca_bundle_sha256 must be 64 lowercase hex digits")
+    if not isinstance(release["upstream_base_commit"], str) or not re.fullmatch(
+        r"[0-9a-f]{40}", release["upstream_base_commit"]
+    ):
+        raise AuthorityError(
+            "release.upstream_base_commit must be 40 lowercase hex digits"
+        )
 
     indexed: dict[str, dict[str, Any]] = {}
     for target in targets:

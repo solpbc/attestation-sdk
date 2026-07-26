@@ -19,6 +19,10 @@ class ReleaseError(RuntimeError):
     pass
 
 
+class SourceError(RuntimeError):
+    pass
+
+
 def _run(arguments: list[str], *, cwd: Path, **kwargs: Any) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(arguments, cwd=cwd, check=True, **kwargs)
@@ -27,28 +31,120 @@ def _run(arguments: list[str], *, cwd: Path, **kwargs: Any) -> subprocess.Comple
 
 
 def _git(root: Path, *arguments: str) -> str:
-    return subprocess.check_output(
-        ["git", "-C", str(root), *arguments], text=True
-    ).strip()
+    command = ["git", "-C", str(root), *arguments]
+    try:
+        return subprocess.check_output(
+            command, text=True, stderr=subprocess.PIPE
+        ).strip()
+    except OSError as error:
+        reason = str(error)
+    except subprocess.CalledProcessError as error:
+        reason = (error.stderr or str(error)).strip()
+    raise SourceError(f"git command failed: {' '.join(command)}: {reason}")
 
 
 def _version(root: Path, data: authority.Authority) -> str:
     return set_validator.release_version(root, data)
 
 
-def _source(root: Path) -> dict[str, Any]:
-    commit = _git(root, "rev-parse", "HEAD")
-    base = _git(root, "merge-base", "main", "HEAD")
-    log = _git(root, "log", "--reverse", "--format=%H%x09%s", f"{base}..HEAD")
+def _git_result(root: Path, *arguments: str) -> subprocess.CompletedProcess:
+    command = ["git", "-C", str(root), *arguments]
+    try:
+        return subprocess.run(
+            command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
+        )
+    except OSError as error:
+        raise SourceError(
+            f"git command failed: {' '.join(command)}: {error}"
+        ) from error
+
+
+def _source(root: Path, release: dict[str, Any]) -> dict[str, Any]:
+    try:
+        commit = _git(root, "rev-parse", "HEAD^{commit}")
+    except SourceError as error:
+        raise SourceError(
+            "source commit is missing or is not a commit: HEAD; "
+            "restore the checkout and retry"
+        ) from error
+
+    base = release["upstream_base_commit"]
+    if _git_result(root, "cat-file", "-e", f"{base}^{{commit}}").returncode:
+        raise SourceError(
+            f"pinned upstream base is missing or is not a commit: {base}; "
+            "fetch the repository history containing that commit and retry"
+        )
+    if _git_result(root, "merge-base", "--is-ancestor", base, commit).returncode:
+        raise SourceError(
+            "pinned upstream base is not an ancestor of source.commit: "
+            f"base={base} source={commit}; check out the intended sol release "
+            "history and retry"
+        )
+
+    revision_range = f"{base}..{commit}"
+    log = _git(root, "log", "--reverse", "--format=%H%x09%s", revision_range)
+    lines = log.splitlines()
+    if not lines:
+        raise SourceError(
+            "source series is empty: upstream base equals source.commit; "
+            "check out the sol release commits and retry"
+        )
     series = []
-    for line in log.splitlines():
-        revision, subject = line.split("\t", 1)
+    for line in lines:
+        try:
+            revision, subject = line.split("\t", 1)
+        except ValueError as error:
+            raise SourceError(
+                f"source series is incomplete: expected valid commit records in "
+                f"{revision_range}; fetch the complete repository history and retry"
+            ) from error
         series.append({"commit": revision, "subject": subject})
+
+    count_output = _git(root, "rev-list", "--count", revision_range)
+    try:
+        count = int(count_output)
+    except ValueError as error:
+        raise SourceError(
+            f"source series is incomplete: invalid commit count {count_output!r} for "
+            f"{revision_range}; fetch the complete repository history and retry"
+        ) from error
+    if len(series) != count:
+        raise SourceError(
+            f"source series is incomplete: expected {count} commits in "
+            f"{revision_range}, parsed {len(series)}; fetch the complete repository "
+            "history and retry"
+        )
+    merges = _git(root, "rev-list", "--merges", revision_range)
+    if merges:
+        merge = merges.splitlines()[0]
+        raise SourceError(
+            f"source series contains merge commit {merge}; rebase the sol series "
+            "to a linear history and retry"
+        )
+    if series[-1]["commit"] != commit:
+        raise SourceError(
+            "source series does not end at source.commit: "
+            f"expected={commit} got={series[-1]['commit']}; restore the complete "
+            "ordered range and retry"
+        )
+    first = series[0]["commit"]
+    try:
+        parent = _git(root, "rev-parse", f"{first}^")
+    except SourceError:
+        parent = "<unavailable>"
+    if parent != base:
+        raise SourceError(
+            "source series does not begin immediately after the pinned upstream "
+            f"base: base={base} first={first} parent={parent}; fetch or restore "
+            "the complete base-exclusive series and retry"
+        )
     return {
         "commit": commit,
         "upstream_base_commit": base,
         "sol_series_commits": series,
-        "source_date_epoch": int(_git(root, "log", "-1", "--format=%ct")),
+        "source_date_epoch": int(
+            _git(root, "log", "-1", "--format=%ct", commit)
+        ),
     }
 
 
@@ -369,7 +465,7 @@ def release(root: Path, target_id: str | None) -> dict[str, Path]:
     data, target = _preflight(root, target_id)
     version = _version(root, data)
     names = set_validator.quartet_names(target, version)
-    source = _source(root)
+    source = _source(root, data.release)
 
     def builder(owned: Path, checkpoint: Any) -> dict[str, Path]:
         stage = owned / "stage"
