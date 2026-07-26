@@ -1,0 +1,10 @@
+# Internal SDK DSO shipped beside nvattest in this archive.
+exact:@rpath/libnvat.1.dylib
+# The SDK deliberately links system zlib. The macOS SDK provides this install
+# name, so it remains a runtime dependency rather than a vendored library.
+exact:/usr/lib/libz.1.dylib
+# Apple system libraries and frameworks are the only permitted external roots.
+prefix:/usr/lib/
+prefix:/System/Library/Frameworks/
+# Every unlisted dependency fails. In particular, Homebrew, /usr/local, build
+# directories, libcurl, libssl, libcrypto, libxml2, and liblzma are forbidden.

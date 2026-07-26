@@ -1,0 +1,91 @@
+[release]
+sol_revision = 2
+ca_snapshot_date = "2026-07-16"
+ca_bundle_url = "https://curl.se/ca/cacert-2026-07-16.pem"
+ca_bundle_sha256 = "3ff344e30b9b1ed2971044eabb438a08f2e2245ddb5f8ab1a3ad8b63ab4eaf91"
+archive_xz_preset = 6
+archive_xz_threads = 1
+source_date_epoch_source = "git-head"
+
+[[targets]]
+id = "linux-x86_64"
+host_os = "Linux"
+host_machines = ["x86_64", "amd64"]
+build_image = "quay.io/pypa/manylinux_2_28_x86_64@sha256:a61875a2f84cab7df8de222ff12cabc08ff86eb4ad402ac90ba7bdaed9600cca"
+gate_images = [
+  "docker.io/library/fedora@sha256:89f61a124414261868224666aa7fb8df1b78397a53623774bdfb105d1612b48b",
+  "docker.io/opensuse/tumbleweed@sha256:cdc11dd58d01acfde221f1b6fba21b64acbed561ef18ab086f78571dff4a4d17",
+]
+container_platform = "linux/amd64"
+archive_name = "libnvat-{target}-{version}-archive.tar.xz"
+binary_format = "elf64-le"
+expected_arch = "EM_X86_64"
+abi_kind = "gnu-symbol-max"
+abi_floor = { glibc = "2.28", glibcxx = "3.4.25", cxxabi = "1.3.11" }
+runtime_allowlist = "sol/release/allowlists/linux-x86_64.txt"
+members = [
+  { path = "bin/nvattest", kind = "regular" },
+  { path = "lib/libnvat.so", kind = "symlink", link_target = "libnvat.so.1" },
+  { path = "lib/libnvat.so.1", kind = "symlink", link_target = "libnvat.so.1.2.2" },
+  { path = "lib/libnvat.so.1.2.2", kind = "regular" },
+  { path = "LICENSE", kind = "regular" },
+  { path = "share/ca/ca-bundle.pem", kind = "regular" },
+  { path = "share/THIRD_PARTY_NOTICES.md", kind = "regular" },
+]
+directory_counts = { "." = 4, bin = 1, lib = 3, share = 2, "share/ca" = 1 }
+required_tools = ["c++", "cmake", "rustc", "cargo", "tar", "xz", "python3"]
+
+[[targets]]
+id = "linux-aarch64"
+host_os = "Linux"
+host_machines = ["aarch64", "arm64"]
+build_image = "quay.io/pypa/manylinux_2_28_aarch64@sha256:e7035406e58d96b7407246af1f6514a3cbd753a0025b42b9adfbeadd3b29ba80"
+gate_images = [
+  "docker.io/library/fedora@sha256:a471bd8bf8e7e99812fd2f29fc950685d860b3d528b9f090443dbc1a0d2bad62",
+  "docker.io/opensuse/tumbleweed@sha256:dc90443ab117e6887a4184d772259b84b3e9e54f6333c3331a42c97fdefd601d",
+]
+container_platform = "linux/arm64"
+archive_name = "libnvat-{target}-{version}-archive.tar.xz"
+binary_format = "elf64-le"
+expected_arch = "EM_AARCH64"
+abi_kind = "gnu-symbol-max"
+abi_floor = { glibc = "2.28", glibcxx = "3.4.25", cxxabi = "1.3.11" }
+runtime_allowlist = "sol/release/allowlists/linux-aarch64.txt"
+members = [
+  { path = "bin/nvattest", kind = "regular" },
+  { path = "lib/libnvat.so", kind = "symlink", link_target = "libnvat.so.1" },
+  { path = "lib/libnvat.so.1", kind = "symlink", link_target = "libnvat.so.1.2.2" },
+  { path = "lib/libnvat.so.1.2.2", kind = "regular" },
+  { path = "LICENSE", kind = "regular" },
+  { path = "share/ca/ca-bundle.pem", kind = "regular" },
+  { path = "share/THIRD_PARTY_NOTICES.md", kind = "regular" },
+]
+directory_counts = { "." = 4, bin = 1, lib = 3, share = 2, "share/ca" = 1 }
+required_tools = ["c++", "cmake", "rustc", "cargo", "tar", "xz", "python3"]
+
+[[targets]]
+id = "macos-arm64"
+host_os = "Darwin"
+host_machines = ["arm64"]
+build_image = "none"
+gate_images = []
+container_platform = "none"
+archive_name = "libnvat-{target}-{version}-archive.tar.xz"
+binary_format = "macho64-le"
+expected_arch = "CPU_TYPE_ARM64"
+abi_kind = "macos-deployment-exact"
+abi_floor = { macos = "14.0" }
+runtime_allowlist = "sol/release/allowlists/macos-arm64.txt"
+members = [
+  { path = "bin/nvattest", kind = "regular" },
+  { path = "lib/libnvat.dylib", kind = "symlink", link_target = "libnvat.1.dylib" },
+  { path = "lib/libnvat.1.dylib", kind = "symlink", link_target = "libnvat.1.2.2.dylib" },
+  { path = "lib/libnvat.1.2.2.dylib", kind = "regular" },
+  { path = "LICENSE", kind = "regular" },
+  { path = "share/ca/ca-bundle.pem", kind = "regular" },
+  { path = "share/THIRD_PARTY_NOTICES.md", kind = "regular" },
+]
+directory_counts = { "." = 4, bin = 1, lib = 3, share = 2, "share/ca" = 1 }
+required_tools = ["clang++", "cmake", "rustc", "cargo", "gtar", "xz", "python3"]
+macho_install_id = "@rpath/libnvat.1.dylib"
+macho_rpath = "@executable_path/../lib"
