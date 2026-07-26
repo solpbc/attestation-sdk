@@ -15,7 +15,7 @@ RELEASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_DIR))
 
 import rail  # noqa: E402
-from release_rail import archive, authority, driver, manifest, runtime  # noqa: E402
+from release_rail import apple, archive, authority, driver, manifest, runtime  # noqa: E402
 from support import tools_for  # noqa: E402
 
 
@@ -228,6 +228,7 @@ class DriverPreflightTest(unittest.TestCase):
     def test_archive_and_manifest_errors_use_normal_cli_error_form(self):
         errors = (
             archive.ArchiveError("tar broke"),
+            apple.AppleToolchainError("Apple tools broke"),
             manifest.ManifestError("tool broke"),
             driver.SourceError("source broke"),
         )
@@ -277,13 +278,21 @@ class DriverRuntimeTest(unittest.TestCase):
             container_commands.append(arguments)
             return mock.Mock(returncode=0, stdout=f"{arguments[-2]} 1.2.3\n")
 
-        def capture(target, _build_dir, invoker=None, *, runtime_evidence=None):
+        def capture(
+            target,
+            _build_dir,
+            invoker=None,
+            *,
+            runtime_evidence=None,
+            apple_evidence=None,
+        ):
             for key, command in zip(
                 ("compiler", "cmake", "rustc", "cargo"),
                 target["required_tools"],
             ):
                 invoker(key, command)
             self.assertEqual(runtime_evidence, distinctive.evidence)
+            self.assertIsNone(apple_evidence)
             return tools_for(target)
 
         def construct(_stage, destination, *_arguments):
@@ -527,6 +536,10 @@ class DriverRuntimeTest(unittest.TestCase):
             driver._build(root, target, build, 123, None)
         self.assertEqual(run.call_count, 2)
         self.assertEqual(run.call_args_list[0].args[0][0], "cmake")
+        self.assertIn(
+            f"-DCMAKE_OSX_DEPLOYMENT_TARGET={target['abi_floor']['macos']}",
+            run.call_args_list[0].args[0],
+        )
         self.assertEqual(driver._tool_invoker(root, target, None), None)
 
         with tempfile.TemporaryDirectory() as directory:
@@ -555,6 +568,31 @@ class DriverRuntimeTest(unittest.TestCase):
             self.assertEqual(arguments[0], str(native_root / "sol/release/runtime-gate.sh"))
             self.assertEqual(len(arguments[1:]), 8)
             self.assertEqual(arguments[-1], "macos")
+
+    def test_macos_preflight_captures_apple_evidence_before_dist(self):
+        target = self.data.target(authority.TARGET_IDS[2])
+        evidence = tools_for(target)[apple.EVIDENCE_KEY]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch.object(
+                authority.Authority, "compatible_target", return_value=target["id"]
+            ):
+                with mock.patch.object(
+                    authority.Authority, "require_compatible", return_value=target
+                ):
+                    with mock.patch.object(authority, "load", return_value=self.data):
+                        with mock.patch.object(driver, "_git", return_value=""):
+                            with mock.patch.object(
+                                apple, "preflight", return_value=evidence
+                            ) as preflight:
+                                with mock.patch.object(
+                                    manifest, "capture_build_tools"
+                                ) as capture:
+                                    driver._preflight(root, target["id"])
+            self.assertFalse((root / "dist").exists())
+        preflight.assert_called_once_with(target)
+        self.assertEqual(capture.call_args.kwargs["apple_evidence"], evidence)
+        self.assertIsNone(capture.call_args.kwargs["runtime_evidence"])
 
 
 if __name__ == "__main__":

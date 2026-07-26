@@ -181,6 +181,22 @@ def load(path: Path | None = None) -> Authority:
             for field in ("macho_install_id", "macho_rpath"):
                 if not isinstance(target.get(field), str) or not target[field]:
                     raise AuthorityError(f"{target_id}: Mach-O target requires {field}")
+            floor = target.get("abi_floor")
+            if (
+                not isinstance(floor, dict)
+                or tuple(floor) != ("macos",)
+                or not isinstance(floor["macos"], str)
+                or not re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", floor["macos"])
+            ):
+                raise AuthorityError(
+                    f"{target_id}: abi_floor.macos must be a dotted numeric version; "
+                    "correct sol/release/targets.toml, then retry"
+                )
+            if target["expected_arch"] != "CPU_TYPE_ARM64":
+                raise AuthorityError(
+                    f"{target_id}: expected_arch must be CPU_TYPE_ARM64; correct "
+                    "sol/release/targets.toml, then retry"
+                )
         elif target["build_image"] == "none" or len(target["gate_images"]) != 2:
             raise AuthorityError(f"{target_id}: Linux targets need one build and two gate images")
         elif "macho_install_id" in target or "macho_rpath" in target:

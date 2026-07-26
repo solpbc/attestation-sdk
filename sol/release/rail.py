@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from release_rail import authority
+from release_rail import apple
 from release_rail import archive
 from release_rail import driver
 from release_rail import gate
@@ -117,6 +118,7 @@ def main() -> int:
             return 0
     except (
         authority.AuthorityError,
+        apple.AppleToolchainError,
         archive.ArchiveError,
         driver.ReleaseError,
         driver.SourceError,

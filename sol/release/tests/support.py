@@ -3,7 +3,7 @@ import os
 import shutil
 from pathlib import Path
 
-from release_rail import archive, elf, fixtures, manifest, runtime, set_validator
+from release_rail import apple, archive, elf, fixtures, manifest, runtime, set_validator
 
 
 SOURCE = {
@@ -33,6 +33,18 @@ def tools_for(target):
                 "os": "linux",
                 "architecture": architecture,
             },
+        }
+    else:
+        tools[apple.EVIDENCE_KEY] = {
+            "apple_clang": {"name": apple.APPLE_CLANG_NAME, "version": "1.2.3"},
+            "xcode": {"version": "1.2.3", "build": "A123"},
+            "sdk": {
+                "name": apple.SDK_NAME,
+                "version": "1.2.3",
+                "path": "/SDKs/MacOSX.sdk",
+            },
+            "architecture": "arm64",
+            "deployment_target": target["abi_floor"]["macos"],
         }
     return tools
 
