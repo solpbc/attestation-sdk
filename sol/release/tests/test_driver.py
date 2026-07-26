@@ -13,9 +13,11 @@ from unittest import mock
 
 
 RELEASE_DIR = Path(__file__).resolve().parents[1]
+ROOT = RELEASE_DIR.parents[1]
 sys.path.insert(0, str(RELEASE_DIR))
 
 import rail  # noqa: E402
+from cmake_support import production_configure, warning_fixture_prepare  # noqa: E402
 from release_rail import (  # noqa: E402
     apple,
     archive,
@@ -266,7 +268,13 @@ class DriverRuntimeTest(unittest.TestCase):
         )
 
     def assert_release_failure_preserves_quartet(
-        self, target, error, patches, *, expected_call=None
+        self,
+        target,
+        error,
+        patches,
+        *,
+        expected_call=None,
+        observation=None,
     ):
         version = "1.2.2-sol.2"
         names = set_validator.quartet_names(target, version)
@@ -298,6 +306,8 @@ class DriverRuntimeTest(unittest.TestCase):
                                 driver.release(root, target["id"])
                     if expected_call is not None:
                         self.assertEqual(calls[expected_call].called, not retained)
+                    if observation is not None:
+                        observation(retained, calls)
                     if retained:
                         for name, payload in original.items():
                             self.assertEqual((dist / name).read_bytes(), payload)
@@ -665,13 +675,61 @@ class DriverRuntimeTest(unittest.TestCase):
                 )
             )
             stack.enter_context(mock.patch.object(driver, "_acquire_ca"))
-            build = stack.enter_context(
-                mock.patch.object(driver, "_build", side_effect=error)
+            marker = mock.Mock()
+
+            def fail_at_spdlog_compile(*_args, **_kwargs):
+                state = {}
+                temporary, configured, _, _, build_dir = production_configure(
+                    ROOT / "nv-attestation-cli",
+                    fixture_prepare=warning_fixture_prepare(state),
+                )
+                with temporary:
+                    self.assertEqual(configured.returncode, 0, configured.stderr)
+                    spdlog_source = state["root"] / "spdlog/stub.cpp"
+                    spdlog_source.write_text(
+                        '#pragma message("NVAT_TEST_SPDLOG_COMPILE_REACHED")\n'
+                        '#error "injected spdlog compile failure"\n',
+                        encoding="utf-8",
+                    )
+                    compiled = subprocess.run(
+                        [
+                            "cmake",
+                            "--build",
+                            str(build_dir),
+                            "--target",
+                            "spdlog",
+                        ],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    output = compiled.stdout + compiled.stderr
+                    self.assertNotEqual(compiled.returncode, 0, output)
+                    self.assertIn("NVAT_TEST_SPDLOG_COMPILE_REACHED", output)
+                    marker()
+                raise error
+
+            side_effect = (
+                fail_at_spdlog_compile
+                if str(error) == "spdlog compile failed"
+                else error
             )
-            return {"build": build}
+            build = stack.enter_context(
+                mock.patch.object(driver, "_build", side_effect=side_effect)
+            )
+            return {"build": build, "marker": marker}
+
+        self.assert_release_failure_preserves_quartet(
+            target,
+            driver.ReleaseError("spdlog compile failed"),
+            patches,
+            expected_call="build",
+            observation=lambda retained, calls: self.assertEqual(
+                calls["marker"].called, not retained
+            ),
+        )
 
         for message in (
-            "fmt compile failed",
             "OpenSSL configure failed",
             "OpenSSL build failed",
             "Apple architecture validation failed",

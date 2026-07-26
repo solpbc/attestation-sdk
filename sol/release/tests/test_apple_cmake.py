@@ -1,4 +1,3 @@
-import json
 import os
 import re
 import subprocess
@@ -6,6 +5,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+from cmake_support import production_configure
+from test_warning_policy import exemption_calls
 
 
 RELEASE_DIR = Path(__file__).resolve().parents[1]
@@ -242,7 +244,7 @@ class AppleCMakeTest(unittest.TestCase):
         for name in ("libxml2_external", "xmlsec_external", "curl_external"):
             self.assertIn("${_EP_AUTOCONF_CFLAGS}", declarations[name])
 
-    def test_preproject_guards_and_fmt_exemption_are_exact(self):
+    def test_preproject_guards_and_compiled_third_party_exemption_form_are_exact(self):
         for path in (CLI_CMAKE, SDK_CMAKE):
             prefix = path.read_text(encoding="utf-8").split("project(", 1)[0]
             self.assertNotIn("if(APPLE", prefix)
@@ -255,107 +257,96 @@ class AppleCMakeTest(unittest.TestCase):
         self.assertIn("PROPERTY NVAT_APPLE_TOOLCHAIN_RESOLVED", sdk_prefix)
         self.assertIn("if(NOT _NVAT_APPLE_TOOLCHAIN_RESOLVED)", sdk_prefix)
         sdk = SDK_CMAKE.read_text(encoding="utf-8")
-        self.assertIn("if(NOT TARGET fmt)", sdk)
+        calls = exemption_calls(sdk)
+        self.assertTrue(calls)
         self.assertEqual(
-            sdk.count(
-                "set_target_properties(fmt PROPERTIES COMPILE_WARNING_AS_ERROR OFF)"
-            ),
-            1,
+            sdk.count("nvat_exempt_compiled_third_party("),
+            len(calls),
         )
-        self.assertNotIn(
-            "set_target_properties(spdlog PROPERTIES COMPILE_WARNING_AS_ERROR OFF)",
-            sdk,
-        )
+        for target, _pin, call_start, call_end in calls:
+            fetch = f"FetchContent_MakeAvailable({target})"
+            prefix = sdk[:call_start].rstrip()
+            self.assertTrue(prefix.endswith(fetch))
+            self.assertEqual(
+                sdk[call_start:call_end].count(
+                    "nvat_exempt_compiled_third_party("
+                ),
+                1,
+            )
 
     def production_configure(self, source, values, *, nested=False, build=None):
-        temporary = tempfile.TemporaryDirectory()
-        root = Path(temporary.name)
-        build = build or root / "build"
-        sdk = root / "MacOSX.sdk"
-        sdk.mkdir(exist_ok=True)
-        event_log = root / "events.txt"
-        project_include = root / "project-include.cmake"
-        project_include.write_text(
-            "get_property(_validated GLOBAL "
-            "PROPERTY NVAT_APPLE_ARCHITECTURE_VALIDATED)\n"
-            f'file(APPEND "{event_log.as_posix()}" '
-            '"project=${PROJECT_NAME};loaded=${CMAKE_CXX_COMPILER_LOADED};'
-            'compiler=${CMAKE_CXX_COMPILER};validated=${_validated}\\n")\n'
-            f'set(CMAKE_HOST_SYSTEM_NAME "{values.get("host_name", "Darwin")}")\n'
-            f'set(CMAKE_HOST_SYSTEM_PROCESSOR "{values.get("host_processor", "arm64")}")\n'
-            f'set(CMAKE_SYSTEM_NAME "{values.get("system_name", "Darwin")}")\n'
-            f'set(CMAKE_SYSTEM_PROCESSOR "{values.get("system_processor", "arm64")}")\n'
-            f'set(CMAKE_OSX_ARCHITECTURES "{values.get("architecture", "arm64")}")\n'
-            f'set(CMAKE_CROSSCOMPILING "{values.get("crosscompiling", "FALSE")}")\n'
-            + (
-                'if(PROJECT_NAME STREQUAL "nv-attestation")\n'
-                '  set(CMAKE_HOST_SYSTEM_PROCESSOR "x86_64")\n'
-                "endif()\n"
-                if nested
-                else ""
-            ),
-            encoding="utf-8",
-        )
-        trace = root / "trace.json"
-        arguments = [
-            "cmake",
-            "--trace-format=json-v1",
-            f"--trace-redirect={trace}",
-            "-S",
-            str(source),
-            "-B",
-            str(build),
-            f"-DCMAKE_PROJECT_INCLUDE={project_include}",
-            f"-DCMAKE_OSX_SYSROOT={sdk}",
-            "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0",
-            "-DCMAKE_OSX_ARCHITECTURES=arm64",
-            "-DBUILD_TESTING=OFF",
-        ]
-        if nested:
-            prefix = CLI_CMAKE.read_text(encoding="utf-8").split(
-                "add_subdirectory(", 1
-            )[0]
-            declared = set(
-                re.findall(r"FetchContent_Declare\s*\(\s*([^\s)]+)", prefix)
-            )
-            stubs = {"CLI11", "json", "fmt", "spdlog"}
-            self.assertEqual(declared, stubs)
-            for name in stubs:
-                stub = root / f"stub-{name}"
-                stub.mkdir()
-                targets = {
-                    "CLI11": "CLI11::CLI11",
-                    "json": "nlohmann_json::nlohmann_json",
-                    "fmt": "fmt::fmt",
-                    "spdlog": "spdlog::spdlog",
-                }
-                plain = targets[name].replace("::", "_")
-                (stub / "CMakeLists.txt").write_text(
-                    "cmake_minimum_required(VERSION 3.11)\n"
-                    f"add_library({plain} INTERFACE)\n"
-                    f"add_library({targets[name]} ALIAS {plain})\n",
-                    encoding="utf-8",
-                )
-                arguments.append(f"-DFETCHCONTENT_SOURCE_DIR_{name.upper()}={stub}")
-            arguments.extend(
-                (
-                    f"-DFETCHCONTENT_SOURCE_DIR_CORROSION={root / 'missing-corrosion'}",
-                    "-DUSE_SYSTEM_NVAT=OFF",
+        def prepare(root):
+            sdk = root / "MacOSX.sdk"
+            sdk.mkdir(exist_ok=True)
+            event_log = root / "events.txt"
+            content = (
+                "get_property(_validated GLOBAL "
+                "PROPERTY NVAT_APPLE_ARCHITECTURE_VALIDATED)\n"
+                f'file(APPEND "{event_log.as_posix()}" '
+                '"project=${PROJECT_NAME};loaded=${CMAKE_CXX_COMPILER_LOADED};'
+                'compiler=${CMAKE_CXX_COMPILER};validated=${_validated}\\n")\n'
+                f'set(CMAKE_HOST_SYSTEM_NAME "{values.get("host_name", "Darwin")}")\n'
+                f'set(CMAKE_HOST_SYSTEM_PROCESSOR "{values.get("host_processor", "arm64")}")\n'
+                f'set(CMAKE_SYSTEM_NAME "{values.get("system_name", "Darwin")}")\n'
+                f'set(CMAKE_SYSTEM_PROCESSOR "{values.get("system_processor", "arm64")}")\n'
+                f'set(CMAKE_OSX_ARCHITECTURES "{values.get("architecture", "arm64")}")\n'
+                f'set(CMAKE_CROSSCOMPILING "{values.get("crosscompiling", "FALSE")}")\n'
+                + (
+                    'if(PROJECT_NAME STREQUAL "nv-attestation")\n'
+                    '  set(CMAKE_HOST_SYSTEM_PROCESSOR "x86_64")\n'
+                    "endif()\n"
+                    if nested
+                    else ""
                 )
             )
-        else:
-            arguments.append(
-                f"-DFETCHCONTENT_SOURCE_DIR_CORROSION={root / 'missing-corrosion'}"
-            )
-        completed = subprocess.run(
-            arguments, text=True, capture_output=True, check=False
+            arguments = [
+                f"-DCMAKE_OSX_SYSROOT={sdk}",
+                "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0",
+                "-DCMAKE_OSX_ARCHITECTURES=arm64",
+            ]
+            if nested:
+                prefix = CLI_CMAKE.read_text(encoding="utf-8").split(
+                    "add_subdirectory(", 1
+                )[0]
+                declared = set(
+                    re.findall(r"FetchContent_Declare\s*\(\s*([^\s)]+)", prefix)
+                )
+                stubs = {"CLI11", "json", "fmt", "spdlog"}
+                self.assertEqual(declared, stubs)
+                for name in stubs:
+                    stub = root / f"stub-{name}"
+                    stub.mkdir()
+                    targets = {
+                        "CLI11": "CLI11::CLI11",
+                        "json": "nlohmann_json::nlohmann_json",
+                        "fmt": "fmt::fmt",
+                        "spdlog": "spdlog::spdlog",
+                    }
+                    plain = targets[name].replace("::", "_")
+                    (stub / "CMakeLists.txt").write_text(
+                        "cmake_minimum_required(VERSION 3.11)\n"
+                        f"add_library({plain} INTERFACE)\n"
+                        f"add_library({targets[name]} ALIAS {plain})\n",
+                        encoding="utf-8",
+                    )
+                    arguments.append(
+                        f"-DFETCHCONTENT_SOURCE_DIR_{name.upper()}={stub}"
+                    )
+                arguments.extend(
+                    (
+                        f"-DFETCHCONTENT_SOURCE_DIR_CORROSION={root / 'missing-corrosion'}",
+                        "-DUSE_SYSTEM_NVAT=OFF",
+                    )
+                )
+            else:
+                arguments.append(
+                    f"-DFETCHCONTENT_SOURCE_DIR_CORROSION={root / 'missing-corrosion'}"
+                )
+            return arguments, content
+
+        return production_configure(
+            source, fixture_prepare=prepare, build=build
         )
-        records = [
-            json.loads(line)
-            for line in trace.read_text(encoding="utf-8").splitlines()
-            if line.startswith("{")
-        ]
-        return temporary, completed, event_log, records, build
 
     @staticmethod
     def traced_calls(records, command):
