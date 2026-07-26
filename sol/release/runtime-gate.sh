@@ -43,7 +43,8 @@ while IFS="$(printf '\t')" read -r directory expected; do
   else
     checked=$root/$directory
   fi
-  actual=$(find "$checked" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')
+  set -- "$checked"/*
+  actual=$#
   test "$actual" = "$expected"
 done < "$counts"
 
@@ -73,6 +74,7 @@ case "$launch_mode" in
     exit 1
     ;;
 esac
+printf '%s\n' "$output"
 printf '%s\n' "$output" | grep -F "/nonexistent/path" >/dev/null
 printf '%s\n' "$output" | grep -F "from --ca-bundle" >/dev/null
 
