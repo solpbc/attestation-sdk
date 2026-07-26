@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import re
 import tarfile
+import tempfile
 from pathlib import Path
 from typing import Any
 
-from . import archive, authority
+from . import archive, authority, gate
 
 
 class SetValidationError(ValueError):
@@ -132,8 +133,14 @@ def _validate_one(
             f"expected {_json_value(expected_members)}, "
             f"got {_json_value(value['archive_members'])}"
         )
-    with tarfile.open(archive_path, "r:xz") as tar:
-        members = tar.getmembers()
+    try:
+        with tarfile.open(archive_path, "r:xz") as tar:
+            members = tar.getmembers()
+    except (OSError, tarfile.TarError) as error:
+        raise SetValidationError(
+            f"invalid archive: {target_id}: {archive_path}: {error}; "
+            f"rebuild with `make release TARGET={target_id}` on its native host"
+        ) from error
     actual_members = [
         {
             "path": item.name,
@@ -147,6 +154,19 @@ def _validate_one(
             f"quartet layout mismatch: {target_id}: archive_members: "
             f"expected {_json_value(expected_members)}, got {_json_value(actual_members)}"
         )
+    allowlist = authority.read_allowlist(data, target)
+    try:
+        with tempfile.TemporaryDirectory() as directory:
+            extracted = Path(directory)
+            with tarfile.open(archive_path, "r:xz") as tar:
+                tar.extractall(extracted, filter="data")
+            for member in target["members"]:
+                if gate.is_binary_member(member):
+                    gate.gate_file(extracted / member["path"], target, allowlist)
+    except (OSError, tarfile.TarError, gate.GateError) as error:
+        raise SetValidationError(
+            f"static archive gate failed: {target_id}: {error}"
+        ) from error
     return value
 
 
@@ -154,7 +174,14 @@ def validate(
     dist: Path,
     data: authority.Authority,
     version: str,
+    *,
+    expected_source_commit: str,
 ) -> dict[str, dict[str, Any]]:
+    if not re.fullmatch(r"[0-9a-f]{40}", expected_source_commit):
+        raise SetValidationError(
+            f"invalid expected source commit: {expected_source_commit!r}; resolve one "
+            "with `git rev-parse HEAD` and retry with `--source-commit <commit>`"
+        )
     if not dist.is_dir():
         raise SetValidationError(f"release set directory does not exist: {dist}")
     expected_names = {
@@ -191,8 +218,13 @@ def validate(
         if not by_target.get(target_id)
     ]
     if missing_targets:
+        recovery = "; ".join(
+            f"on its native host run `make release TARGET={target_id}`"
+            for target_id in missing_targets
+        )
         raise SetValidationError(
             "; ".join(f"missing target: {target_id}" for target_id in missing_targets)
+            + f"; recover by collecting each missing quartet: {recovery}"
         )
     for target_id in authority.TARGET_IDS:
         paths = by_target.get(target_id, [])
@@ -237,6 +269,15 @@ def validate(
                 for target_id, value in values.items()
             )
             raise SetValidationError(f"cross-target mismatch: {field}: {rendered}")
+    source_commit = manifests[authority.TARGET_IDS[0]]["source"]["commit"]
+    if source_commit != expected_source_commit:
+        raise SetValidationError(
+            "source identity mismatch: source.commit: "
+            f"expected {_json_value(expected_source_commit)}, "
+            f"all targets={_json_value(source_commit)}; check out "
+            f"`git switch --detach {source_commit}` to validate that source, or rerun "
+            f"with `--source-commit {source_commit}` for an out-of-checkout collection"
+        )
     revision = manifests[authority.TARGET_IDS[0]]["release"]["sol_revision"]
     if revision != data.release["sol_revision"]:
         raise SetValidationError(

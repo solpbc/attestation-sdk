@@ -57,10 +57,13 @@ python3 sol/release/rail.py validate-set --dist dist
 ```
 
 The default version is derived from the upstream CMake project version and the
-authority's Sol revision. Use `--version` only to inspect a deliberately
-selected historical set. Validation requires exactly one complete quartet for
-every authority target and rechecks archive/manifest hashes, sidecars, member
-layout, and shared source/release identity.
+authority's Sol revision, and the expected source defaults to this checkout's
+`HEAD`. For a collection validated outside its source checkout, pass the
+explicit expected identity with `--source-commit <40-hex-commit>`. Use
+`--version` only to inspect a deliberately selected historical set. Validation
+requires exactly one complete quartet for every authority target and rechecks
+archive/manifest hashes, sidecars, member layout, archived binary policy, and
+shared source/release identity.
 
 ## Reproducibility claim
 

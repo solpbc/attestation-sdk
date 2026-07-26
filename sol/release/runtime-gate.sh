@@ -44,8 +44,12 @@ while IFS="$(printf '\t')" read -r directory expected; do
   else
     checked=$root/$directory
   fi
-  set -- "$checked"/*
-  actual=$#
+  actual=0
+  for entry in "$checked"/* "$checked"/.[!.]* "$checked"/..?*; do
+    if [ -e "$entry" ] || [ -L "$entry" ]; then
+      actual=$((actual + 1))
+    fi
+  done
   test "$actual" = "$expected"
 done < "$counts"
 
