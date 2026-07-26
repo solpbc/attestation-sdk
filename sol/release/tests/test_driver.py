@@ -57,6 +57,18 @@ class DriverPreflightTest(unittest.TestCase):
                 ):
                     driver._acquire_ca(release, path)
 
+    def test_linux_build_exports_source_date_epoch(self):
+        target = authority.load().target("linux-x86_64")
+        root = Path("/source")
+        with mock.patch.object(driver, "_git", return_value="/git/common"):
+            with mock.patch.object(driver, "_run") as run:
+                driver._build(root, target, root / "build/release", 1234567890)
+        arguments = run.call_args.args[0]
+        self.assertEqual(
+            arguments[arguments.index("-e") + 1],
+            "SOURCE_DATE_EPOCH=1234567890",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
