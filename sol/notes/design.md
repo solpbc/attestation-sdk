@@ -5,8 +5,8 @@
 > remain current for CA resolution and vendored dependencies; x86_64-era
 > release packaging and gating text is historical.
 
-> Non-authoritative planning record. `sol/release/release.env` is the sole
-> authority for the release revision, CA snapshot, and container image pins.
+> Non-authoritative planning record. Its former `release.env` authority was
+> retired; `sol/release/targets.toml` is the current release authority.
 
 ## Decisions and dependency order
 

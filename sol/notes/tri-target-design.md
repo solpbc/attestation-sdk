@@ -669,14 +669,17 @@ fixed GNU tar, xz preset 6, and one xz thread.
 This design stage runs no builds or validation. The following require later
 native execution:
 
-* the new x86_64 end-to-end build and two bare-container gates;
 * the aarch64 manylinux build and its two arm64 bare-container gates;
 * the macOS arm64 CMake build, exact dylib/symlink chain, load commands, and
   native smoke gates;
 * Apple clang/OpenSSL `darwin64-arm64-cc`, SDK zlib, GNU tar, and xz tool-version
   preflight;
-* same-host double-build archive/quartet identity for each target;
+* same-host double-build archive/quartet identity for aarch64 Linux and macOS;
 * atomic rollback behavior under real filesystem move failures.
+
+Part 3 completed the native x86_64 end-to-end build, both bare-container gates,
+and same-host byte-identical double construction. The remaining entries above
+are still authored and statically gated only.
 
 ## Risks and settled-ruling assessment
 

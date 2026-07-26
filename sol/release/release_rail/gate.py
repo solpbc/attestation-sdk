@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from . import authority, elf, macho
+from . import elf, macho
 
 
 FORBIDDEN_CA_PATHS = (
@@ -18,7 +18,18 @@ _ELF_MACHINES = {"EM_X86_64": elf.EM_X86_64, "EM_AARCH64": elf.EM_AARCH64}
 
 
 class GateError(ValueError):
-    pass
+    def __init__(self, message: str):
+        super().__init__(
+            f"{message}; rebuild the target artifact with the reported policy "
+            "violation corrected, then retry"
+        )
+
+
+def is_binary_member(member: dict[str, Any]) -> bool:
+    path = member["path"]
+    return path == "bin/nvattest" or (
+        path.startswith("lib/") and member["kind"] == "regular"
+    )
 
 
 def _version_tuple(value: str) -> tuple[int, ...]:
@@ -124,15 +135,12 @@ def gate_macho(path: Path, target: dict[str, Any], allowlist: list[str]) -> None
 def gate_file(
     path: Path, target: dict[str, Any], allowlist: list[str]
 ) -> None:
-    if target["binary_format"] == "elf64-le":
-        gate_elf(path, target, allowlist)
-    elif target["binary_format"] == "macho64-le":
-        gate_macho(path, target, allowlist)
-    else:
-        raise GateError(f"{path}: unsupported binary format {target['binary_format']}")
-
-
-def gate_for_target(path: Path, target_id: str) -> None:
-    data = authority.load()
-    target = data.target(target_id)
-    gate_file(path, target, authority.read_allowlist(data, target))
+    try:
+        if target["binary_format"] == "elf64-le":
+            gate_elf(path, target, allowlist)
+        elif target["binary_format"] == "macho64-le":
+            gate_macho(path, target, allowlist)
+        else:
+            raise GateError(f"{path}: unsupported binary format {target['binary_format']}")
+    except (elf.ElfError, macho.MachOError) as error:
+        raise GateError(str(error)) from error

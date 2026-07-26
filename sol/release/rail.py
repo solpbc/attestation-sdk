@@ -10,8 +10,10 @@ import sys
 from pathlib import Path
 
 from release_rail import authority
+from release_rail import archive
 from release_rail import driver
 from release_rail import gate
+from release_rail import manifest
 from release_rail import set_validator
 from release_rail import transaction
 
@@ -57,6 +59,7 @@ def _parser() -> argparse.ArgumentParser:
     validate = commands.add_parser("validate-set")
     validate.add_argument("--dist", type=Path, default=Path("dist"))
     validate.add_argument("--version")
+    validate.add_argument("--source-commit")
     return parser
 
 
@@ -90,13 +93,23 @@ def main() -> int:
                 ).strip()
             )
             version = arguments.version or set_validator.release_version(root, data)
-            set_validator.validate(arguments.dist, data, version)
+            expected_source_commit = arguments.source_commit or subprocess.check_output(
+                ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
+            ).strip()
+            set_validator.validate(
+                arguments.dist,
+                data,
+                version,
+                expected_source_commit=expected_source_commit,
+            )
             print(f"complete release set validated: {version}")
             return 0
     except (
         authority.AuthorityError,
+        archive.ArchiveError,
         driver.ReleaseError,
         gate.GateError,
+        manifest.ManifestError,
         set_validator.SetValidationError,
         transaction.TransactionError,
         KeyError,

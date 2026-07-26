@@ -2,6 +2,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 RELEASE_DIR = Path(__file__).resolve().parents[1]
@@ -102,7 +103,7 @@ class TransactionTest(unittest.TestCase):
         with self.assertRaisesRegex(
             transaction.TransactionError,
             "promotion refuses to overwrite: .*move the existing quartet aside with "
-            "`mkdir -p .* && mv .*`, then retry",
+            "`retained=\\$\\(mktemp -d .*\\.XXXXXX\\) && mv .*`, then retry",
         ):
             transaction.run(
                 dist=self.dist,
@@ -114,6 +115,35 @@ class TransactionTest(unittest.TestCase):
         for basename in self.names.values():
             self.assertEqual((self.dist / basename).read_text(), "previous")
         self.assertFalse((self.dist / ".staging").exists())
+
+    def test_concurrent_destination_creation_does_not_clobber(self):
+        real_link = transaction.os.link
+
+        def race(source, destination):
+            if destination.name == self.names["manifest"]:
+                destination.write_text("concurrent", encoding="utf-8")
+                raise FileExistsError(17, "exists", source, destination)
+            real_link(source, destination)
+
+        with mock.patch.object(transaction.os, "link", side_effect=race):
+            with self.assertRaisesRegex(
+                transaction.TransactionError,
+                "promotion destination appeared concurrently",
+            ):
+                transaction.run(
+                    dist=self.dist,
+                    target_id=authority.TARGET_IDS[0],
+                    version="1.2.2-sol.2",
+                    destination_names=self.names,
+                    builder=self.builder,
+                )
+        self.assertEqual(
+            (self.dist / self.names["manifest"]).read_text(encoding="utf-8"),
+            "concurrent",
+        )
+        for key, basename in self.names.items():
+            if key != "manifest":
+                self.assertFalse((self.dist / basename).exists())
 
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 import hashlib
+import io
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest import mock
 
@@ -9,7 +11,8 @@ from unittest import mock
 RELEASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_DIR))
 
-from release_rail import authority, driver  # noqa: E402
+import rail  # noqa: E402
+from release_rail import archive, authority, driver, manifest  # noqa: E402
 
 
 class DriverPreflightTest(unittest.TestCase):
@@ -68,6 +71,25 @@ class DriverPreflightTest(unittest.TestCase):
             arguments[arguments.index("-e") + 1],
             "SOURCE_DATE_EPOCH=1234567890",
         )
+
+    def test_archive_and_manifest_errors_use_normal_cli_error_form(self):
+        errors = (
+            archive.ArchiveError("tar broke"),
+            manifest.ManifestError("tool broke"),
+        )
+        for error in errors:
+            with self.subTest(error=type(error).__name__):
+                output = io.StringIO()
+                with mock.patch.object(
+                    sys, "argv", ["rail.py", "release", authority.TARGET_IDS[0]]
+                ):
+                    with mock.patch.object(rail.driver, "release", side_effect=error):
+                        with redirect_stderr(output):
+                            self.assertEqual(rail.main(), 2)
+                self.assertEqual(
+                    output.getvalue(),
+                    f"release rail error: {error}\n",
+                )
 
 
 if __name__ == "__main__":

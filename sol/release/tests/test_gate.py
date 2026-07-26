@@ -53,6 +53,10 @@ class GateTest(unittest.TestCase):
 
     def test_elf_empty_needed_forbidden_dso_and_above_floor_fail(self):
         target, allowlist = self.target(authority.TARGET_IDS[0])
+        glibc_floor = target["abi_floor"]["glibc"]
+        glibc_parts = glibc_floor.split(".")
+        glibc_parts[-1] = str(int(glibc_parts[-1]) + 1)
+        above_glibc = ".".join(glibc_parts)
         cases = (
             (
                 fixtures.elf_fixture(elf.EM_X86_64, needed=()),
@@ -66,9 +70,9 @@ class GateTest(unittest.TestCase):
             ),
             (
                 fixtures.elf_fixture(
-                    elf.EM_X86_64, versions=("GLIBC_2.29",)
+                    elf.EM_X86_64, versions=(f"GLIBC_{above_glibc}",)
                 ),
-                "GLIBC requirement 2.29 exceeds target floor 2.28",
+                f"GLIBC requirement {above_glibc} exceeds target floor {glibc_floor}",
             ),
             (
                 fixtures.elf_fixture(

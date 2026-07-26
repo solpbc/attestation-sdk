@@ -3,7 +3,7 @@ import os
 import shutil
 from pathlib import Path
 
-from release_rail import archive, manifest, set_validator
+from release_rail import archive, elf, fixtures, manifest, set_validator
 
 
 SOURCE = {
@@ -24,6 +24,30 @@ def make_stage(stage: Path, target):
         path.parent.mkdir(parents=True, exist_ok=True)
         if item["kind"] == "symlink":
             path.symlink_to(item["link_target"])
+        elif item["path"] == "bin/nvattest":
+            if target["binary_format"] == "elf64-le":
+                machine = {
+                    "EM_X86_64": elf.EM_X86_64,
+                    "EM_AARCH64": elf.EM_AARCH64,
+                }[target["expected_arch"]]
+                path.write_bytes(fixtures.elf_fixture(machine))
+            else:
+                path.write_bytes(
+                    fixtures.macho_fixture(rpaths=(target["macho_rpath"],))
+                )
+        elif item["path"].startswith("lib/"):
+            if target["binary_format"] == "elf64-le":
+                machine = {
+                    "EM_X86_64": elf.EM_X86_64,
+                    "EM_AARCH64": elf.EM_AARCH64,
+                }[target["expected_arch"]]
+                path.write_bytes(fixtures.elf_fixture(machine))
+            else:
+                path.write_bytes(
+                    fixtures.macho_fixture(
+                        dylib_id=target["macho_install_id"], rpaths=()
+                    )
+                )
         else:
             path.write_bytes(f"fixture:{item['path']}\n".encode())
 

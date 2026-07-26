@@ -73,7 +73,9 @@ def _acquire_ca(release: dict[str, Any], destination: Path) -> None:
         raise ReleaseError(
             "pinned dependency hash mismatch: CA bundle: "
             f"expected={expected} downloaded={downloaded_hash} "
-            f"published={published_hash}"
+            f"published={published_hash}; run `sha256sum {destination}` on Linux or "
+            f"`shasum -a 256 {destination}` on macOS and compare it with "
+            "release.ca_bundle_sha256 in sol/release/targets.toml, then retry"
         )
 
 
@@ -82,10 +84,16 @@ def _validate_layout(stage: Path, target: dict[str, Any]) -> None:
         path = stage / item["path"]
         if item["kind"] == "regular":
             if not path.is_file() or path.is_symlink():
-                raise ReleaseError(f"layout mismatch: expected regular file: {path}")
+                raise ReleaseError(
+                    f"layout mismatch: expected regular file: {path}; rebuild the "
+                    "target and retry the release"
+                )
         else:
             if not path.is_symlink():
-                raise ReleaseError(f"layout mismatch: expected symlink: {path}")
+                raise ReleaseError(
+                    f"layout mismatch: expected symlink: {path}; rebuild the target "
+                    "and retry the release"
+                )
             if os.readlink(path) != item["link_target"]:
                 raise ReleaseError(
                     f"layout mismatch: {path}: expected link "
@@ -223,10 +231,7 @@ def _stage(root: Path, build_dir: Path, stage: Path, target: dict[str, Any], ca:
         "LICENSE": root / "LICENSE",
         "share/ca/ca-bundle.pem": ca,
     }
-    if target["host_os"] == "Linux":
-        library_dir = build_dir / "nv-attestation-sdk-build"
-    else:
-        library_dir = build_dir / "nv-attestation-sdk-build"
+    library_dir = build_dir / "nv-attestation-sdk-build"
     for item in target["members"]:
         relative = item["path"]
         if relative == "share/THIRD_PARTY_NOTICES.md":
@@ -238,11 +243,8 @@ def _stage(root: Path, build_dir: Path, stage: Path, target: dict[str, Any], ca:
 def _gate_binaries(stage: Path, data: authority.Authority, target: dict[str, Any]) -> None:
     allowlist = authority.read_allowlist(data, target)
     for item in target["members"]:
-        path = item["path"]
-        if path == "bin/nvattest" or (
-            path.startswith("lib/") and item["kind"] == "regular"
-        ):
-            gate.gate_file(stage / path, target, allowlist)
+        if gate.is_binary_member(item):
+            gate.gate_file(stage / item["path"], target, allowlist)
 
 
 def _write_specs(owned: Path, target: dict[str, Any]) -> tuple[Path, Path]:
@@ -350,7 +352,11 @@ def _preflight(root: Path, target_id: str | None) -> tuple[authority.Authority, 
         ) from error
     dirty = _git(root, "status", "--porcelain", "--untracked-files=all")
     if dirty:
-        raise ReleaseError(f"release requires a clean source tree:\n{dirty}")
+        raise ReleaseError(
+            "release requires a clean source tree; inspect with `git status --short`, "
+            "then commit the intended changes or run `git stash push --include-untracked` "
+            f"before retrying:\n{dirty}"
+        )
     manifest.capture_build_tools(
         target,
         root / ".release-preflight-no-cmake-cache",

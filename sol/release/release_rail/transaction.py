@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shlex
 import shutil
 from pathlib import Path
@@ -45,11 +46,12 @@ def run(
         if path.exists() or path.is_symlink()
     ]
     if existing:
-        retained = dist / f"retained-{target_id}-{version}"
+        template = dist / f"retained-{target_id}-{version}.XXXXXX"
         command = (
-            shlex.join(["mkdir", "-p", str(retained)])
+            f"retained=$(mktemp -d {shlex.quote(str(template))})"
             + " && "
-            + shlex.join(["mv", *(str(path) for path in existing), str(retained)])
+            + shlex.join(["mv", *(str(path) for path in existing)])
+            + ' "$retained"/'
         )
         raise TransactionError(
             f"promotion refuses to overwrite: {existing[0]}; "
@@ -82,12 +84,23 @@ def run(
         for key in QUARTET_ORDER:
             source = sources[key]
             destination = destinations[key]
-            source.replace(destination)
+            os.link(source, destination)
             moved.append(destination)
+            source.unlink()
             checkpoint(f"after-promotion:{key}")
-    except BaseException:
+    except BaseException as error:
         for destination in reversed(moved):
             if destination in destinations.values():
                 destination.unlink(missing_ok=True)
+        if isinstance(error, FileExistsError):
+            raise TransactionError(
+                f"promotion destination appeared concurrently: {error.filename2}; "
+                "move the conflicting file aside and retry"
+            ) from error
+        if isinstance(error, OSError):
+            raise TransactionError(
+                f"promotion failed at {destination}: {error}; inspect the destination "
+                "filesystem, correct the reported condition, and retry"
+            ) from error
         raise
     return destinations
