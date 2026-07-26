@@ -8,7 +8,7 @@ from pathlib import Path
 RELEASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_DIR))
 
-from release_rail import fixtures, macho  # noqa: E402
+from release_rail import authority, fixtures, gate, macho  # noqa: E402
 
 
 class MachOReaderTest(unittest.TestCase):
@@ -29,6 +29,20 @@ class MachOReaderTest(unittest.TestCase):
         self.assertEqual(info.deployments, ((14, 0, 0),))
         self.assertEqual(info.dylibs, ((macho.LC_LOAD_DYLIB, "/usr/lib/libz.1.dylib"),))
         self.assertEqual(info.rpaths, ("@executable_path/../lib",))
+
+    def test_authored_arm64_cache_rejects_non_arm64_macho_observation(self):
+        cache = self.directory / "CMakeCache.txt"
+        cache.write_text(
+            "CMAKE_OSX_ARCHITECTURES:STRING=arm64\n", encoding="utf-8"
+        )
+        self.assertIn(
+            "CMAKE_OSX_ARCHITECTURES:STRING=arm64",
+            cache.read_text(encoding="utf-8"),
+        )
+        target = authority.load().target("macos-arm64")
+        path = self.write(fixtures.macho_fixture(cputype=0x01000007))
+        with self.assertRaisesRegex(gate.GateError, "wrong Mach-O architecture"):
+            gate.gate_macho(path, target, [])
 
     def test_reads_legacy_deployment_command(self):
         info = macho.read(
