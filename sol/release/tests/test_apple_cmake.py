@@ -83,6 +83,26 @@ class AppleCMakeTest(unittest.TestCase):
             self.assertEqual(output, f"ran=4\nenv=SDKROOT={sdk}\n")
             self.assertFalse((Path(directory) / "should-not-exist").exists())
 
+    def test_list_separator_sdk_paths_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for character, name in (
+                ("semicolon", "SDK;fixture.sdk"),
+                ("backslash", r"SDK\fixture.sdk"),
+            ):
+                with self.subTest(character=character):
+                    sdk = Path(directory) / name
+                    sdk.mkdir()
+                    completed, _ = self.run_script("Darwin", sdk)
+                    self.assertNotEqual(completed.returncode, 0)
+                    self.assertRegex(
+                        completed.stderr,
+                        r"resolved path contains a semicolon or\s+backslash",
+                    )
+                    self.assertIn(
+                        "-DCMAKE_OSX_SYSROOT=<absolute SDK directory>",
+                        completed.stderr,
+                    )
+
     def test_missing_floor_and_invalid_architecture_fail_with_recovery(self):
         with tempfile.TemporaryDirectory() as directory:
             sdk = Path(directory) / "MacOSX.sdk"
@@ -181,6 +201,9 @@ class AppleCMakeTest(unittest.TestCase):
             prefix = path.read_text(encoding="utf-8").split("project(", 1)[0]
             self.assertNotIn("if(APPLE", prefix)
             self.assertIn('CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin"', prefix)
+        sdk_prefix = SDK_CMAKE.read_text(encoding="utf-8").split("project(", 1)[0]
+        self.assertIn("PROPERTY NVAT_APPLE_TOOLCHAIN_RESOLVED", sdk_prefix)
+        self.assertIn("if(NOT _NVAT_APPLE_TOOLCHAIN_RESOLVED)", sdk_prefix)
         sdk = SDK_CMAKE.read_text(encoding="utf-8")
         self.assertIn("if(NOT TARGET fmt)", sdk)
         self.assertEqual(
