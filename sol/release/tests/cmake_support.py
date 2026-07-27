@@ -198,6 +198,7 @@ def production_configure(
     build=None,
     query_codemodel=False,
     export_compile_commands=False,
+    env=None,
 ):
     temporary = tempfile.TemporaryDirectory()
     root = Path(temporary.name)
@@ -234,10 +235,45 @@ def production_configure(
     arguments.extend(extra_arguments)
 
     completed = subprocess.run(
-        arguments, text=True, capture_output=True, check=False
+        arguments, text=True, capture_output=True, check=False, env=env
     )
     records = load_trace(trace)
     return temporary, completed, event_log, records, build
+
+
+def install_configured_nvat(build, prefix):
+    install_script = build / "nv-attestation-sdk-build/cmake_install.cmake"
+    source_paths = set()
+    for value in re.findall(
+        r'"([^"]+/libnvat\.(?:so|dylib)(?:\.[0-9.]+)?)"',
+        install_script.read_text(encoding="utf-8"),
+    ):
+        candidate = Path(value)
+        if (
+            candidate.is_absolute()
+            and build.resolve() in candidate.resolve().parents
+        ):
+            source_paths.add(candidate)
+    for path in source_paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    (build / "nvattest").touch()
+    return subprocess.run(
+        ["cmake", "--install", str(build), "--prefix", str(prefix)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def write_package_config_stubs(root, packages):
+    root.mkdir(parents=True, exist_ok=True)
+    for package in packages:
+        (root / f"{package}Config.cmake").write_text(
+            f"set({package}_FOUND TRUE)\n",
+            encoding="utf-8",
+        )
+    return root
 
 
 def load_trace(path):

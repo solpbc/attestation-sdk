@@ -103,6 +103,17 @@ class AppleCMakeTest(unittest.TestCase):
                         "nvat_header_consumer_boundary.cmake",
                         boundary_module,
                     )
+                    link_closure_module = (
+                        root
+                        / "nv-attestation-sdk-cpp/cmake/"
+                        "nvat_apple_system_link_closure.cmake"
+                    )
+                    os.symlink(
+                        ROOT
+                        / "nv-attestation-sdk-cpp/cmake/"
+                        "nvat_apple_system_link_closure.cmake",
+                        link_closure_module,
+                    )
                     sdk = root / "MacOSX.sdk"
                     sdk.mkdir()
                     result = root / "result.txt"
