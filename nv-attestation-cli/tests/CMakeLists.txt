@@ -31,7 +31,7 @@ FetchContent_MakeAvailable(json)
 FetchContent_Declare(
     cli11
     GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-    GIT_TAG v2.4.2
+    GIT_TAG v2.6.1
 )
 FetchContent_MakeAvailable(cli11)
 
