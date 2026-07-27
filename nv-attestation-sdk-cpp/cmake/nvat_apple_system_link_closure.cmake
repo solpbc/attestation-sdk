@@ -61,7 +61,15 @@ function(nvat_configure_apple_system_link_closure)
       "${_nvat_apple_rust_owner_target}"
       INTERFACE_LINK_DIRECTORIES
     )
-    if(_nvat_apple_rust_link_directories)
+    # Compare exact states instead of using if(<var>): CMake treats false
+    # constants and values ending in -NOTFOUND as false, but set values must
+    # still pass the recognizer.
+    if(_nvat_apple_rust_link_directories STREQUAL
+       "_nvat_apple_rust_link_directories-NOTFOUND")
+      # The property is not set.
+    elseif(_nvat_apple_rust_link_directories STREQUAL "")
+      # The property is explicitly empty.
+    else()
       foreach(_nvat_apple_rust_link_directory IN LISTS
               _nvat_apple_rust_link_directories)
         if(NOT _nvat_apple_rust_link_directory STREQUAL
