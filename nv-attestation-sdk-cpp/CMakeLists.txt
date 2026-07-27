@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.11)
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/nvat_apple_sdk.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/nvat_header_consumer_boundary.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/nvat_apple_system_link_closure.cmake")
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
   get_property(_NVAT_APPLE_TOOLCHAIN_RESOLVED GLOBAL
     PROPERTY NVAT_APPLE_TOOLCHAIN_RESOLVED)
@@ -369,6 +370,10 @@ else()
   find_package(xmlsec REQUIRED)
 
 endif() # USE_SYSTEM_DEPS
+
+if(APPLE)
+  nvat_configure_apple_system_link_closure()
+endif()
 
 find_package(ZLIB REQUIRED)
 

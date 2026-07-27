@@ -33,6 +33,7 @@ from release_rail import (  # noqa: E402
     set_validator,
 )
 from support import tools_for  # noqa: E402
+from test_apple_link_closure import ReducedAppleFixture  # noqa: E402
 
 
 class SourceTest(unittest.TestCase):
@@ -658,6 +659,36 @@ class DriverRuntimeTest(unittest.TestCase):
         self.assertEqual(capture.call_args.kwargs["apple_evidence"], evidence)
         self.assertIsNone(capture.call_args.kwargs["runtime_evidence"])
 
+    def test_macos_configure_error_combines_target_and_helper_diagnostic(self):
+        target = self.data.target(authority.TARGET_IDS[2])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = ReducedAppleFixture(root / "fixture", iconv=False)
+            fixture.source.rename(root / "nv-attestation-cli")
+            output = io.StringIO()
+            with redirect_stderr(output):
+                with self.assertRaises(driver.ReleaseError) as raised:
+                    driver._build(
+                        root,
+                        target,
+                        root / "build/release",
+                        1_700_000_000,
+                        None,
+                    )
+            diagnostic = (
+                "Darwin/arm64 iconv discovery failed: libiconv.tbd was not "
+                f"found in selected SDK '{fixture.sdk}/usr/lib'"
+            )
+            self.assertIn(diagnostic, re.sub(r"\s+", " ", output.getvalue()))
+            self.assertIn(
+                "macos-arm64 native CMake configure failed",
+                str(raised.exception),
+            )
+            self.assertIn(
+                diagnostic,
+                re.sub(r"\s+", " ", str(raised.exception)),
+            )
+
     def test_macos_build_failures_use_driver_build_seam_and_never_publish(self):
         target = self.data.target(authority.TARGET_IDS[2])
 
@@ -758,10 +789,76 @@ class DriverRuntimeTest(unittest.TestCase):
                         raise
                     self.fail("invalid pinned header boundary configured successfully")
 
+            def fail_at_apple_link_recorder(*_args, **_kwargs):
+                self.assertTrue((_root / "dist/.staging").is_dir())
+                with tempfile.TemporaryDirectory() as directory:
+                    fixture_root = Path(directory)
+                    marker_path = fixture_root / "recorder-reached.txt"
+                    recorder = fixture_root / "hostile-link-recorder.sh"
+                    recorder.write_text(
+                        "#!/usr/bin/env sh\n"
+                        "printf '%s\\n' NVAT_TEST_APPLE_LINK_RECORDER_REACHED >&2\n"
+                        f"printf '%s\\n' NVAT_TEST_APPLE_LINK_RECORDER_REACHED "
+                        f"> {marker_path}\n"
+                        "exit 73\n",
+                        encoding="utf-8",
+                    )
+                    recorder.chmod(0o755)
+                    fixture = ReducedAppleFixture(
+                        fixture_root / "fixture",
+                        before_call=(
+                            'set(CMAKE_CXX_CREATE_SHARED_LIBRARY "'
+                            f'\\"{recorder}\\" <LINK_LIBRARIES>")\n'
+                            'set(CMAKE_CXX_LINK_EXECUTABLE "'
+                            f'\\"{recorder}\\" <LINK_LIBRARIES>")\n'
+                        ),
+                    )
+                    driver._run(
+                        [
+                            "cmake",
+                            "-S",
+                            str(fixture.source),
+                            "-B",
+                            str(fixture.build),
+                        ],
+                        cwd=fixture_root,
+                        text=True,
+                        capture_output=True,
+                    )
+                    try:
+                        driver._run(
+                            [
+                                "cmake",
+                                "--build",
+                                str(fixture.build),
+                                "--target",
+                                "nvat",
+                            ],
+                            cwd=fixture_root,
+                            text=True,
+                            capture_output=True,
+                        )
+                    except driver.ReleaseError as child_error:
+                        child = child_error.__cause__
+                        output = (child.stdout or "") + (child.stderr or "")
+                        self.assertIn(
+                            "NVAT_TEST_APPLE_LINK_RECORDER_REACHED", output
+                        )
+                        self.assertEqual(
+                            marker_path.read_text(encoding="utf-8"),
+                            "NVAT_TEST_APPLE_LINK_RECORDER_REACHED\n",
+                        )
+                        self.assertNotEqual(child.returncode, 0)
+                        marker()
+                        raise driver.ReleaseError(f"{error}: {child_error}") from child_error
+                    self.fail("hostile Apple link recorder succeeded")
+
             if str(error) == "spdlog compile failed":
                 side_effect = fail_at_spdlog_compile
             elif str(error) == "command failed":
                 side_effect = fail_at_pinned_header_boundary
+            elif str(error) == "apple link recorder failed":
+                side_effect = fail_at_apple_link_recorder
             else:
                 side_effect = error
             build = stack.enter_context(
@@ -782,6 +879,16 @@ class DriverRuntimeTest(unittest.TestCase):
         self.assert_release_failure_preserves_quartet(
             target,
             driver.ReleaseError("command failed"),
+            patches,
+            expected_call="build",
+            observation=lambda retained, calls: self.assertEqual(
+                calls["marker"].called, not retained
+            ),
+        )
+
+        self.assert_release_failure_preserves_quartet(
+            target,
+            driver.ReleaseError("apple link recorder failed"),
             patches,
             expected_call="build",
             observation=lambda retained, calls: self.assertEqual(
