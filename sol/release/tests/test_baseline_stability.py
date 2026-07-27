@@ -13,7 +13,7 @@ RELEASE_DIR = Path(__file__).resolve().parents[1]
 ROOT = RELEASE_DIR.parents[1]
 sys.path.insert(0, str(RELEASE_DIR))
 
-from release_rail import authority, set_validator  # noqa: E402
+from release_rail import authority, inventory, set_validator  # noqa: E402
 
 
 GENERATOR_PATH = RELEASE_DIR / "generate-dependencies.py"
@@ -283,23 +283,10 @@ class BaselineStabilityTest(unittest.TestCase):
         baseline_locks = tuple(
             line for line in baseline_listing if Path(line).name == "Cargo.lock"
         )
-        current_locks = tuple(
-            line for line in current_listing if Path(line).name == "Cargo.lock"
-        )
         self.assertEqual(baseline_locks, ())
-        self.assertEqual(current_locks, ())
-        working_locks = tuple(
-            sorted(
-                path.relative_to(ROOT).as_posix()
-                for path in ROOT.rglob("Cargo.lock")
-                if ".git" not in path.relative_to(ROOT).parts
-            )
-        )
-        untracked_locks = tuple(
-            path for path in working_locks if path not in set(current_locks)
-        )
-        self.assertEqual(untracked_locks, ())
-        self.assertEqual(working_locks, current_locks)
+        lock_inventory = inventory.cargo_locks(ROOT)
+        self.assertEqual(lock_inventory.tracked, ())
+        self.assertEqual(lock_inventory.untracked_non_ignored, ())
 
         self.assertEqual(self.source(LICENSE), self.baseline(LICENSE))
         baseline_inputs = self.baseline_dependency_inputs()
