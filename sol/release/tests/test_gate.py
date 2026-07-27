@@ -124,7 +124,10 @@ class GateTest(unittest.TestCase):
         gate.gate_file(
             self.write(
                 "nvattest",
-                fixtures.macho_fixture(rpaths=(target["macho_rpath"],)),
+                fixtures.macho_fixture(
+                    deployment_version=(14, 0, 0),
+                    rpaths=("@executable_path/../lib",),
+                ),
             ),
             target,
             allowlist,
@@ -133,7 +136,9 @@ class GateTest(unittest.TestCase):
             self.write(
                 "libnvat.1.2.2.dylib",
                 fixtures.macho_fixture(
-                    dylib_id=target["macho_install_id"], rpaths=()
+                    deployment_version=(14, 0, 0),
+                    dylib_id="@rpath/libnvat.1.dylib",
+                    rpaths=(),
                 ),
             ),
             target,

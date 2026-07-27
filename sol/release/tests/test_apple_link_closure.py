@@ -25,6 +25,9 @@ HELPER = (
     ROOT
     / "nv-attestation-sdk-cpp/cmake/nvat_apple_system_link_closure.cmake"
 )
+CORROSION_SDK_LINK_DIRECTORY = (
+    "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib"
+)
 PACKAGE_DEPENDENCIES = ("CURL", "LibXml2", "OpenSSL", "spdlog", "xmlsec")
 POISON_ENVIRONMENT_KEYS = (
     "CMAKE_FIND_ROOT_PATH",
@@ -163,10 +166,14 @@ class ReducedAppleFixture:
             "set(CMAKE_CXX_LINK_LIBRARY_USING_FRAMEWORK_SUPPORTED TRUE)\n"
             f'set(NVAT_APPLE_SDKROOT "{self.sdk.as_posix()}")\n'
             f'include("{HELPER.as_posix()}")\n'
-            "add_library(regorus_ffi STATIC IMPORTED GLOBAL)\n"
-            "set_target_properties(regorus_ffi PROPERTIES\n"
+            "add_library(regorus_ffi INTERFACE)\n"
+            "add_library(regorus_ffi-static STATIC IMPORTED GLOBAL)\n"
+            "set_target_properties(regorus_ffi-static PROPERTIES\n"
             f'  IMPORTED_LOCATION "{(self.root / "libregorus_ffi.a").as_posix()}"\n'
+            "  INTERFACE_LINK_DIRECTORIES "
+            f'"{CORROSION_SDK_LINK_DIRECTORY}"\n'
             ")\n"
+            "target_link_libraries(regorus_ffi INTERFACE regorus_ffi-static)\n"
             "add_library(LibXml2::LibXml2 STATIC IMPORTED)\n"
             "set_target_properties(LibXml2::LibXml2 PROPERTIES\n"
             f'  IMPORTED_LOCATION "{(self.root / "libxml2.a").as_posix()}"\n'
@@ -179,13 +186,27 @@ class ReducedAppleFixture:
             f"{before_call}"
             f"{call}\n"
             "get_target_property(_regorus regorus_ffi INTERFACE_LINK_LIBRARIES)\n"
+            "get_target_property(_regorus_static_location regorus_ffi-static "
+            "IMPORTED_LOCATION)\n"
+            "get_target_property(_regorus_directories regorus_ffi "
+            "INTERFACE_LINK_DIRECTORIES)\n"
+            "get_target_property(_regorus_static_directories regorus_ffi-static "
+            "INTERFACE_LINK_DIRECTORIES)\n"
+            "get_target_property(_regorus_type regorus_ffi TYPE)\n"
+            "get_target_property(_regorus_static_type regorus_ffi-static TYPE)\n"
             "get_target_property(_libxml LibXml2::LibXml2 "
             "INTERFACE_LINK_LIBRARIES)\n"
             "get_target_property(_xmlsec xmlsec::xmlsec "
             "INTERFACE_LINK_LIBRARIES)\n"
             "get_target_property(_iconv Iconv::Iconv IMPORTED_LOCATION)\n"
             f'file(WRITE "{self.properties.as_posix()}"\n'
-            '  "REGORUS=${_regorus}\\nLIBXML=${_libxml}\\n'
+            '  "REGORUS=${_regorus}\\n'
+            'REGORUS_STATIC_LOCATION=${_regorus_static_location}\\n'
+            'REGORUS_DIRECTORIES=${_regorus_directories}\\n'
+            'REGORUS_STATIC_DIRECTORIES=${_regorus_static_directories}\\n'
+            'REGORUS_TYPE=${_regorus_type}\\n'
+            'REGORUS_STATIC_TYPE=${_regorus_static_type}\\n'
+            'LIBXML=${_libxml}\\n'
             'XMLSEC=${_xmlsec}\\nICONV=${_iconv}\\n")\n'
             "add_library(nvat SHARED nvat.cpp)\n"
             "target_link_libraries(nvat PRIVATE\n"
@@ -261,6 +282,44 @@ class AppleLinkClosureTest(unittest.TestCase):
             self.production_completed.stderr,
         )
 
+    def assert_known_directory_absent(self, fixture, targets):
+        links = {
+            name: (
+                fixture.build / f"CMakeFiles/{name}.dir/link.txt"
+            ).read_text(encoding="utf-8")
+            for name in ("nvat", "nvattest")
+        }
+        fragments = {
+            name: {
+                "libraries": library_fragments(targets[name]),
+                "all": all_link_fragments(targets[name]),
+            }
+            for name in ("nvat", "nvattest")
+        }
+        self.assertNotIn(
+            f"-L{CORROSION_SDK_LINK_DIRECTORY}",
+            fragments["nvat"]["all"],
+        )
+        for name in ("nvat", "nvattest"):
+            for surface in (
+                fragments[name]["libraries"],
+                fragments[name]["all"],
+            ):
+                for fragment in surface:
+                    self.assertNotIn(
+                        CORROSION_SDK_LINK_DIRECTORY,
+                        fragment,
+                    )
+            self.assertNotIn(CORROSION_SDK_LINK_DIRECTORY, links[name])
+        self.assertEqual(
+            fragments["nvattest"]["libraries"],
+            [
+                f"-Wl,-rpath,{fixture.build.as_posix()}",
+                "libnvat.so",
+            ],
+        )
+        return links, fragments
+
     def test_production_has_one_guarded_call_and_one_edge_truth_source(self):
         call = extracted_apple_call()
         self.assertIn("nvat_configure_apple_system_link_closure()", call)
@@ -290,6 +349,48 @@ class AppleLinkClosureTest(unittest.TestCase):
             re.MULTILINE,
         )
         self.assertEqual(len(property_calls), 2)
+        self.assertEqual(helper.count(CORROSION_SDK_LINK_DIRECTORY), 1)
+        self.assertRegex(
+            helper,
+            r"set\(\s+_nvat_apple_rust_owner_targets\s+"
+            r"regorus_ffi\s+regorus_ffi-static\s+\)",
+        )
+        self.assertEqual(helper.count("get_target_property("), 1)
+        self.assertEqual(
+            len(
+                re.findall(
+                    r"set_property\(\s+TARGET "
+                    r'"\$\{_nvat_apple_rust_owner_target\}"\s+'
+                    r'PROPERTY INTERFACE_LINK_DIRECTORIES ""\s+\)',
+                    helper,
+                )
+            ),
+            1,
+        )
+        self.assertEqual(
+            helper.count(
+                "if(NOT _nvat_apple_rust_link_directory STREQUAL\n"
+                "           _nvat_apple_corrosion_sdk_link_directory)"
+            ),
+            1,
+        )
+        property_read = helper.index("get_target_property(")
+        recognizer = helper.index(
+            "if(NOT _nvat_apple_rust_link_directory STREQUAL"
+        )
+        corefoundation_validation = helper.index(
+            "if(NOT _nvat_apple_corefoundation_inside_sdk EQUAL 0)"
+        )
+        directory_clear = helper.index(
+            'PROPERTY INTERFACE_LINK_DIRECTORIES ""'
+        )
+        first_graph_mutation = helper.index(
+            "add_library(Iconv::Iconv UNKNOWN IMPORTED)"
+        )
+        self.assertLess(property_read, recognizer)
+        self.assertLess(recognizer, corefoundation_validation)
+        self.assertLess(corefoundation_validation, directory_clear)
+        self.assertLess(directory_clear, first_graph_mutation)
         link_block = re.search(
             r"^target_link_libraries\(nvat\n.*?^\)$",
             sdk_source,
@@ -310,10 +411,22 @@ class AppleLinkClosureTest(unittest.TestCase):
             properties = read_properties(fixture.properties)
             _codemodel, targets = load_codemodel(fixture.build)
             nvat = library_fragments(targets["nvat"])
-            nvattest = library_fragments(targets["nvattest"])
-            corefoundation = properties["REGORUS"]
+            links, fragments = self.assert_known_directory_absent(
+                fixture, targets
+            )
+            nvattest_all = fragments["nvattest"]["all"]
+            regorus_interface = properties["REGORUS"].split(";")
+            self.assertEqual(regorus_interface[0], "regorus_ffi-static")
+            self.assertEqual(len(regorus_interface), 2)
+            corefoundation = regorus_interface[1]
             iconv_target = properties["LIBXML"]
             iconv_path = properties["ICONV"]
+            regorus_path = properties["REGORUS_STATIC_LOCATION"]
+            self.assertEqual(Path(regorus_path), fixture.root / "libregorus_ffi.a")
+            self.assertEqual(properties["REGORUS_DIRECTORIES"], "")
+            self.assertEqual(properties["REGORUS_STATIC_DIRECTORIES"], "")
+            self.assertEqual(properties["REGORUS_TYPE"], "INTERFACE_LIBRARY")
+            self.assertEqual(properties["REGORUS_STATIC_TYPE"], "STATIC_LIBRARY")
             self.assertEqual(iconv_target, "Iconv::Iconv")
             self.assertEqual(properties["XMLSEC"], "LibXml2::LibXml2")
             self.assertEqual(Path(iconv_path), fixture.sdk / "usr/lib/libiconv.tbd")
@@ -341,18 +454,146 @@ class AppleLinkClosureTest(unittest.TestCase):
             self.assertGreaterEqual(len(libxml_indices), 1, nvat)
             self.assertGreater(core_indices[0], regorus_indices[-1])
             self.assertGreater(iconv_indices[0], libxml_indices[-1])
-            for value in (corefoundation, iconv_path):
-                self.assertNotIn(value, nvattest)
-            nvat_link = (fixture.build / "CMakeFiles/nvat.dir/link.txt").read_text(
-                encoding="utf-8"
-            )
-            nvattest_link = (
-                fixture.build / "CMakeFiles/nvattest.dir/link.txt"
-            ).read_text(encoding="utf-8")
+            for marker in (
+                Path(regorus_path).name,
+                Path(iconv_path).name,
+                "CoreFoundation",
+            ):
+                self.assertFalse(
+                    any(marker in fragment for fragment in nvattest_all),
+                    nvattest_all,
+                )
+            nvat_link = links["nvat"]
+            nvattest_link = links["nvattest"]
             self.assertIn(iconv_path, nvat_link)
             self.assertIn("CoreFoundation", nvat_link)
             self.assertNotIn(iconv_path, nvattest_link)
             self.assertNotIn("CoreFoundation", nvattest_link)
+            self.assertNotIn(Path(regorus_path).name, nvattest_link)
+
+    def test_known_link_directory_on_facade_is_cleared(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = ReducedAppleFixture(
+                directory,
+                before_call=(
+                    "set_property(TARGET regorus_ffi PROPERTY "
+                    "INTERFACE_LINK_DIRECTORIES "
+                    f'"{CORROSION_SDK_LINK_DIRECTORY}")\n'
+                ),
+            )
+            completed = fixture.configure(query_codemodel=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            properties = read_properties(fixture.properties)
+            self.assertEqual(properties["REGORUS_DIRECTORIES"], "")
+            self.assertEqual(properties["REGORUS_STATIC_DIRECTORIES"], "")
+            _codemodel, targets = load_codemodel(fixture.build)
+            self.assert_known_directory_absent(fixture, targets)
+
+    def test_unknown_and_malformed_link_directories_fail_closed(self):
+        known = CORROSION_SDK_LINK_DIRECTORY
+        cases = (
+            ("arbitrary", "/opt/homebrew/lib", "/opt/homebrew/lib"),
+            (
+                "unrecognized SDK",
+                "/Applications/Xcode.app/SDKs/Other.sdk/usr/lib",
+                "/Applications/Xcode.app/SDKs/Other.sdk/usr/lib",
+            ),
+            ("leading empty", f";{known}", ""),
+            ("trailing empty", f"{known};", ""),
+            ("doubled separator", f"{known};;{known}", ""),
+            ("relative", "relative/lib", "relative/lib"),
+            (
+                "embedded semicolon",
+                r"/tmp/embedded\;entry",
+                "/tmp/embedded;entry",
+            ),
+            (
+                "mixed known and unknown",
+                f"{known};/usr/local/lib",
+                "/usr/local/lib",
+            ),
+        )
+        for target in ("regorus_ffi", "regorus_ffi-static"):
+            for name, value, offending in cases:
+                with self.subTest(target=target, case=name):
+                    temporary = tempfile.TemporaryDirectory()
+                    with temporary:
+                        fixture = ReducedAppleFixture(
+                            temporary.name,
+                            before_call=(
+                                f"set_property(TARGET {target} PROPERTY "
+                                "INTERFACE_LINK_DIRECTORIES "
+                                f'"{value}")\n'
+                            ),
+                        )
+                        completed = fixture.configure()
+                        self.assert_exact_diagnostic(
+                            completed,
+                            "Darwin/arm64 Rust link-directory closure failed: "
+                            f"target '{target}' has unsupported "
+                            "INTERFACE_LINK_DIRECTORIES entry "
+                            f"'{offending}'; remove the unexpected "
+                            "link-directory entry and configure from a clean "
+                            "build directory, then retry",
+                        )
+
+    def test_empty_and_unset_link_directories_are_verified_and_safe(self):
+        cases = (
+            (
+                "empty",
+                'set_property(TARGET {target} PROPERTY '
+                'INTERFACE_LINK_DIRECTORIES "")\n',
+            ),
+            (
+                "unset",
+                "set_property(TARGET {target} PROPERTY "
+                "INTERFACE_LINK_DIRECTORIES)\n",
+            ),
+        )
+        for target in ("regorus_ffi", "regorus_ffi-static"):
+            for name, command in cases:
+                with self.subTest(target=target, state=name):
+                    with tempfile.TemporaryDirectory() as directory:
+                        fixture = ReducedAppleFixture(
+                            directory,
+                            before_call=command.format(target=target),
+                        )
+                        completed = fixture.configure(query_codemodel=True)
+                        self.assertEqual(
+                            completed.returncode,
+                            0,
+                            completed.stderr,
+                        )
+                        properties = read_properties(fixture.properties)
+                        self.assertEqual(
+                            properties["REGORUS_DIRECTORIES"], ""
+                        )
+                        self.assertEqual(
+                            properties["REGORUS_STATIC_DIRECTORIES"], ""
+                        )
+                        self.assertEqual(
+                            properties["REGORUS_TYPE"],
+                            "INTERFACE_LIBRARY",
+                        )
+                        self.assertEqual(
+                            properties["REGORUS_STATIC_TYPE"],
+                            "STATIC_LIBRARY",
+                        )
+                        self.assertEqual(
+                            properties["LIBXML"],
+                            "Iconv::Iconv",
+                        )
+                        regorus = properties["REGORUS"].split(";")
+                        self.assertEqual(regorus[0], "regorus_ffi-static")
+                        self.assertEqual(len(regorus), 2)
+                        _codemodel, targets = load_codemodel(fixture.build)
+                        links, _fragments = (
+                            self.assert_known_directory_absent(
+                                fixture, targets
+                            )
+                        )
+                        self.assertIn(properties["ICONV"], links["nvat"])
+                        self.assertIn("CoreFoundation", links["nvat"])
 
     def test_linux_production_link_vectors_are_unchanged(self):
         self.assert_production_configured()
@@ -503,11 +744,6 @@ class AppleLinkClosureTest(unittest.TestCase):
                 "SDK path, then retry",
             ),
             (
-                "missing regorus",
-                {},
-                None,
-            ),
-            (
                 "missing iconv",
                 dict(iconv=False),
                 None,
@@ -520,32 +756,6 @@ class AppleLinkClosureTest(unittest.TestCase):
         )
         for name, options, diagnostic in cases:
             with self.subTest(name=name):
-                if name == "missing regorus":
-                    with tempfile.TemporaryDirectory() as directory:
-                        fixture = ReducedAppleFixture(directory)
-                        source = (fixture.source / "CMakeLists.txt").read_text(
-                            encoding="utf-8"
-                        )
-                        source = re.sub(
-                            r"add_library\(regorus_ffi STATIC IMPORTED GLOBAL\).*?"
-                            r"\)\n(?=add_library\(LibXml2::LibXml2)",
-                            "",
-                            source,
-                            count=1,
-                            flags=re.DOTALL,
-                        )
-                        (fixture.source / "CMakeLists.txt").write_text(
-                            source, encoding="utf-8"
-                        )
-                        completed = fixture.configure()
-                        self.assert_exact_diagnostic(
-                            completed,
-                            "Darwin/arm64 CoreFoundation closure failed: static "
-                            "owner target regorus_ffi does not exist; create the "
-                            "pinned regorus_ffi target before the Apple closure "
-                            "call, then retry",
-                        )
-                    continue
                 temporary, fixture, completed = self.configure_failure(**options)
                 with temporary:
                     if name == "missing iconv":
@@ -565,6 +775,46 @@ class AppleLinkClosureTest(unittest.TestCase):
                             "and remove the build directory, then retry"
                         )
                     self.assert_exact_diagnostic(completed, diagnostic)
+
+        for target in ("regorus_ffi", "regorus_ffi-static"):
+            with self.subTest(missing_target=target):
+                with tempfile.TemporaryDirectory() as directory:
+                    fixture = ReducedAppleFixture(directory)
+                    source_path = fixture.source / "CMakeLists.txt"
+                    source = source_path.read_text(encoding="utf-8")
+                    if target == "regorus_ffi":
+                        source = source.replace(
+                            "add_library(regorus_ffi INTERFACE)\n",
+                            "",
+                            1,
+                        )
+                    else:
+                        source = re.sub(
+                            r"add_library\(regorus_ffi-static STATIC IMPORTED "
+                            r"GLOBAL\)\n"
+                            r"set_target_properties\(regorus_ffi-static "
+                            r"PROPERTIES\n.*?^\)\n",
+                            "",
+                            source,
+                            count=1,
+                            flags=re.MULTILINE | re.DOTALL,
+                        )
+                    source = source.replace(
+                        "target_link_libraries(regorus_ffi INTERFACE "
+                        "regorus_ffi-static)\n",
+                        "",
+                        1,
+                    )
+                    source_path.write_text(source, encoding="utf-8")
+                    completed = fixture.configure()
+                    self.assert_exact_diagnostic(
+                        completed,
+                        "Darwin/arm64 Rust link-directory closure failed: "
+                        f"required owner-chain target '{target}' does not "
+                        "exist; recreate the pinned Corrosion regorus_ffi "
+                        "staticlib targets in a clean build directory, then "
+                        "retry",
+                    )
 
         with tempfile.TemporaryDirectory() as directory:
             fixture = ReducedAppleFixture(directory)
@@ -954,16 +1204,20 @@ class AppleLinkClosureTest(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             properties = read_properties(fixture.properties)
             _codemodel, targets = load_codemodel(fixture.build)
-            links = {
-                name: (
-                    fixture.build / f"CMakeFiles/{name}.dir/link.txt"
-                ).read_text(encoding="utf-8")
-                for name in ("nvat", "nvattest")
-            }
+            links, fragments = self.assert_known_directory_absent(
+                fixture, targets
+            )
+            self.assertEqual(properties["REGORUS_DIRECTORIES"], "")
+            self.assertEqual(properties["REGORUS_STATIC_DIRECTORIES"], "")
+            self.assertEqual(properties["REGORUS_TYPE"], "INTERFACE_LIBRARY")
+            self.assertEqual(
+                properties["REGORUS_STATIC_TYPE"],
+                "STATIC_LIBRARY",
+            )
             generated_surfaces = (
                 *properties.values(),
-                " ".join(all_link_fragments(targets["nvat"])),
-                " ".join(all_link_fragments(targets["nvattest"])),
+                " ".join(fragments["nvat"]["all"]),
+                " ".join(fragments["nvattest"]["all"]),
                 links["nvat"],
                 links["nvattest"],
             )
@@ -972,21 +1226,28 @@ class AppleLinkClosureTest(unittest.TestCase):
                     with self.subTest(token=token, generated_surface=index):
                         self.assertNotIn(token, surface)
 
+            regorus_interface = properties["REGORUS"].split(";")
+            self.assertEqual(regorus_interface[0], "regorus_ffi-static")
+            self.assertEqual(len(regorus_interface), 2)
             expected = (
                 (
-                    properties["REGORUS"],
-                    Path(properties["REGORUS"]).stem,
+                    properties["REGORUS_STATIC_LOCATION"],
+                    Path(properties["REGORUS_STATIC_LOCATION"]).name,
                 ),
                 (
                     properties["ICONV"],
                     Path(properties["ICONV"]).name,
                 ),
+                (
+                    regorus_interface[1],
+                    "CoreFoundation",
+                ),
             )
             nvat = " ".join(
-                (*all_link_fragments(targets["nvat"]), links["nvat"])
+                (*fragments["nvat"]["all"], links["nvat"])
             )
             nvattest = " ".join(
-                (*all_link_fragments(targets["nvattest"]), links["nvattest"])
+                (*fragments["nvattest"]["all"], links["nvattest"])
             )
             for exact, generated_marker in expected:
                 self.assertIn(generated_marker, nvat)
@@ -1032,16 +1293,33 @@ class AppleLinkClosureTest(unittest.TestCase):
             self.assertTrue((fixture.build / "CMakeCache.txt").exists())
             properties = read_properties(fixture.properties)
             self.assertEqual(properties["LIBXML"], "Iconv::Iconv")
+            self.assertEqual(properties["REGORUS_DIRECTORIES"], "")
+            self.assertEqual(properties["REGORUS_STATIC_DIRECTORIES"], "")
+            self.assertEqual(properties["REGORUS_TYPE"], "INTERFACE_LIBRARY")
+            self.assertEqual(
+                properties["REGORUS_STATIC_TYPE"],
+                "STATIC_LIBRARY",
+            )
+            regorus = properties["REGORUS"].split(";")
+            self.assertEqual(regorus[0], "regorus_ffi-static")
+            self.assertEqual(len(regorus), 2)
             nvat_link = (fixture.build / "CMakeFiles/nvat.dir/link.txt").read_text(
                 encoding="utf-8"
             )
             nvattest_link = (
                 fixture.build / "CMakeFiles/nvattest.dir/link.txt"
             ).read_text(encoding="utf-8")
+            self.assertIn(properties["REGORUS_STATIC_LOCATION"], nvat_link)
             self.assertIn(properties["ICONV"], nvat_link)
             self.assertIn("CoreFoundation", nvat_link)
+            self.assertNotIn(
+                properties["REGORUS_STATIC_LOCATION"],
+                nvattest_link,
+            )
             self.assertNotIn(properties["ICONV"], nvattest_link)
             self.assertNotIn("CoreFoundation", nvattest_link)
+            self.assertNotIn(CORROSION_SDK_LINK_DIRECTORY, nvat_link)
+            self.assertNotIn(CORROSION_SDK_LINK_DIRECTORY, nvattest_link)
 
     def test_extracted_link_closure_with_release_cmake(self):
         self.assert_extracted_fixture("cmake")
