@@ -423,6 +423,11 @@ class AppleLinkClosureTest(unittest.TestCase):
             iconv_path = properties["ICONV"]
             regorus_path = properties["REGORUS_STATIC_LOCATION"]
             self.assertEqual(Path(regorus_path), fixture.root / "libregorus_ffi.a")
+            self.assertEqual(
+                Path(corefoundation),
+                fixture.sdk
+                / "System/Library/Frameworks/CoreFoundation.framework",
+            )
             self.assertEqual(properties["REGORUS_DIRECTORIES"], "")
             self.assertEqual(properties["REGORUS_STATIC_DIRECTORIES"], "")
             self.assertEqual(properties["REGORUS_TYPE"], "INTERFACE_LIBRARY")
@@ -457,7 +462,7 @@ class AppleLinkClosureTest(unittest.TestCase):
             for marker in (
                 Path(regorus_path).name,
                 Path(iconv_path).name,
-                "CoreFoundation",
+                corefoundation,
             ):
                 self.assertFalse(
                     any(marker in fragment for fragment in nvattest_all),
@@ -468,7 +473,7 @@ class AppleLinkClosureTest(unittest.TestCase):
             self.assertIn(iconv_path, nvat_link)
             self.assertIn("CoreFoundation", nvat_link)
             self.assertNotIn(iconv_path, nvattest_link)
-            self.assertNotIn("CoreFoundation", nvattest_link)
+            self.assertNotIn(corefoundation, nvattest_link)
             self.assertNotIn(Path(regorus_path).name, nvattest_link)
 
     def test_known_link_directory_on_facade_is_cleared(self):
@@ -511,6 +516,14 @@ class AppleLinkClosureTest(unittest.TestCase):
                 "mixed known and unknown",
                 f"{known};/usr/local/lib",
                 "/usr/local/lib",
+            ),
+            ("false constant OFF", "OFF", "OFF"),
+            ("false constant zero", "0", "0"),
+            ("bare NOTFOUND", "NOTFOUND", "NOTFOUND"),
+            (
+                "directory-shaped NOTFOUND",
+                "/opt/homebrew/lib-NOTFOUND",
+                "/opt/homebrew/lib-NOTFOUND",
             ),
         )
         for target in ("regorus_ffi", "regorus_ffi-static"):

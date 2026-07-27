@@ -554,3 +554,23 @@ Implement in this order:
 
 No implementation choice remains open. The native-link item is a Pro5E proof
 obligation, not a reason to widen the helper or path budget.
+
+## Landed test locations
+
+The citations above retain their declared pre-change basis. Test code moved
+materially during implementation; the corresponding landed locations are:
+
+| pre-change reference | landed location |
+| --- | --- |
+| `test_apple_link_closure.py:108-227` reduced fixture | `test_apple_link_closure.py:111-249` |
+| `test_apple_link_closure.py:264-303` structural guard | `test_apple_link_closure.py:323-405` |
+| `test_apple_link_closure.py:305-355` owner-order test | `test_apple_link_closure.py:406-478` |
+| `test_apple_link_closure.py:357-404` Linux-vector test | `test_apple_link_closure.py:611-659` |
+| `test_apple_link_closure.py:496-601` helper-failure test | `test_apple_link_closure.py:750-865` |
+| `test_apple_link_closure.py:906-994` policy test | `test_apple_link_closure.py:1169-1268` |
+| `test_apple_link_closure.py:1026-1050` extracted fixture | `test_apple_link_closure.py:1300-1336` |
+| `test_apple_link_closure.py:1194-1205` README guard | `test_apple_link_closure.py:1485-1496` |
+| `test_authority.py:144-161` subprocess host test | `test_authority.py:169-187` |
+| `test_driver.py:324-449` runtime-selection test | `test_driver.py:337-476` |
+| `test_driver.py:580-594` ownership-order test | `test_driver.py:607-638` |
+| `test_driver.py:642-648` authority-patch precedent | `test_driver.py:681-704` |
