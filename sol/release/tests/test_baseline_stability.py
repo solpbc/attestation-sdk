@@ -3,6 +3,7 @@ import importlib.util
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 from collections import Counter
 from pathlib import Path
@@ -23,13 +24,23 @@ generate_dependencies = importlib.util.module_from_spec(GENERATOR_SPEC)
 GENERATOR_SPEC.loader.exec_module(generate_dependencies)
 
 
-BASELINE = "22065d840cbcc8ff457ac224da0df299a4e23b3f"
+BASELINE = "b75e95ae0c08ac6eaa05673a0cf227b8723e2b58"
 TARGETS = Path("sol/release/targets.toml")
 AUTHORITY = Path("sol/release/release_rail/authority.py")
 SDK_CMAKE = Path("nv-attestation-sdk-cpp/CMakeLists.txt")
 CLI_CMAKE = Path("nv-attestation-cli/CMakeLists.txt")
+LICENSE = Path("LICENSE")
 HEADER_BOUNDARY = Path(
     "nv-attestation-sdk-cpp/cmake/nvat_header_consumer_boundary.cmake"
+)
+APPLE_LINK_CLOSURE = Path(
+    "nv-attestation-sdk-cpp/cmake/nvat_apple_system_link_closure.cmake"
+)
+RUST_INVENTORY = (
+    "nv-attestation-sdk-rust/Cargo.toml",
+    "nv-attestation-sdk-rust/nv-attestation-sdk-sys/Cargo.toml",
+    "nv-attestation-sdk-rust/nv-attestation-sdk-sys/build.rs",
+    "nv-attestation-sdk-rust/nv-attestation-sdk/Cargo.toml",
 )
 PROJECT = re.compile(
     r"^project\(([^\s)]+)\s+VERSION\s+([^\s)]+)\)$", re.MULTILINE
@@ -173,6 +184,39 @@ class BaselineStabilityTest(unittest.TestCase):
             self.call_tokens(current_sdk, "corrosion_import_crate"),
             self.call_tokens(baseline_sdk, "corrosion_import_crate"),
         )
+        self.assertEqual(
+            self.call_tokens(current_sdk, "corrosion_import_crate"),
+            (
+                "MANIFEST_PATH",
+                '"${regorus_SOURCE_DIR}/bindings/ffi/Cargo.toml"',
+                "PROFILE",
+                '"release"',
+                "CRATES",
+                "regorus-ffi",
+                "FEATURES",
+                '"regorus/semver"',
+                "CRATE_TYPES",
+                '"staticlib"',
+            ),
+        )
+
+        regorus = [
+            record
+            for record in current_complete[SDK_CMAKE]
+            if record[1].lower() == "regorus"
+        ]
+        self.assertEqual(
+            regorus,
+            [
+                (
+                    "FetchContent_Declare",
+                    "regorus",
+                    "git",
+                    "https://github.com/microsoft/regorus.git",
+                    "regorus-v0.4.0",
+                )
+            ],
+        )
 
     def test_release_version_matches_baseline_sdk_version(self):
         _, version = self.project_value(self.baseline(SDK_CMAKE))
@@ -193,6 +237,92 @@ class BaselineStabilityTest(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertNotIn(token, source)
+
+    def test_apple_link_closure_helper_declares_no_dependency_coordinates(self):
+        source = self.source(APPLE_LINK_CLOSURE).decode()
+        for token in (
+            "FetchContent_Declare",
+            "ExternalProject_Add",
+            "GIT_REPOSITORY",
+            "GIT_TAG",
+            "URL",
+            "URL_HASH",
+        ):
+            with self.subTest(token=token):
+                self.assertNotIn(token, source)
+
+    def test_rust_and_licensing_inventory_is_unchanged(self):
+        baseline_rust = tuple(
+            line
+            for line in subprocess.run(
+                [
+                    "git",
+                    "ls-tree",
+                    "-r",
+                    "--name-only",
+                    BASELINE,
+                    "nv-attestation-sdk-rust",
+                ],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.splitlines()
+            if Path(line).name in {"Cargo.toml", "Cargo.lock", "build.rs"}
+        )
+        current_rust = tuple(
+            line
+            for line in subprocess.run(
+                ["git", "ls-files", "nv-attestation-sdk-rust"],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.splitlines()
+            if Path(line).name in {"Cargo.toml", "Cargo.lock", "build.rs"}
+        )
+        self.assertEqual(baseline_rust, RUST_INVENTORY)
+        self.assertEqual(current_rust, RUST_INVENTORY)
+        self.assertFalse(any(path.endswith("/Cargo.lock") for path in baseline_rust))
+        current_locks = []
+        for product in (
+            ROOT,
+            ROOT / "nv-attestation-sdk-rust",
+            ROOT / "nv-attestation-sdk-cpp",
+            ROOT / "nv-attestation-cli",
+        ):
+            paths = product.glob("Cargo.lock") if product == ROOT else product.rglob(
+                "Cargo.lock"
+            )
+            current_locks.extend(paths)
+        self.assertEqual(current_locks, [])
+
+        self.assertEqual(self.source(LICENSE), self.baseline(LICENSE))
+        baseline_inputs = self.baseline_dependency_inputs()
+        baseline_sources = self.dependency_sources(baseline_inputs, True)
+        with tempfile.TemporaryDirectory() as directory:
+            baseline_root = Path(directory)
+            for path, source in baseline_sources.items():
+                destination = baseline_root / path
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text(source, encoding="utf-8")
+            baseline_dependencies = generate_dependencies.parse(baseline_root)
+        current_dependencies = generate_dependencies.parse(ROOT)
+        baseline_runtime = [
+            dependency
+            for dependency in baseline_dependencies
+            if dependency["classification"] == "runtime"
+        ]
+        current_runtime = [
+            dependency
+            for dependency in current_dependencies
+            if dependency["classification"] == "runtime"
+        ]
+        self.assertEqual(current_runtime, baseline_runtime)
+        self.assertEqual(
+            generate_dependencies.notices(current_dependencies).encode(),
+            generate_dependencies.notices(baseline_dependencies).encode(),
+        )
 
     def test_compiled_warning_exemption_is_byte_identical(self):
         function_pattern = re.compile(

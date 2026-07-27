@@ -24,11 +24,36 @@ class SourceError(RuntimeError):
     pass
 
 
-def _run(arguments: list[str], *, cwd: Path, **kwargs: Any) -> subprocess.CompletedProcess:
+def _run(
+    arguments: list[str], *, cwd: Path, **kwargs: Any
+) -> subprocess.CompletedProcess:
+    replay_stderr = kwargs.get("stderr") is subprocess.PIPE
+
+    def replay(value: str | bytes | None) -> None:
+        if not replay_stderr or not value:
+            return
+        if isinstance(value, bytes):
+            sys.stderr.buffer.write(value)
+            sys.stderr.buffer.flush()
+        else:
+            sys.stderr.write(value)
+            sys.stderr.flush()
+
     try:
-        return subprocess.run(arguments, cwd=cwd, check=True, **kwargs)
+        completed = subprocess.run(arguments, cwd=cwd, check=True, **kwargs)
     except (OSError, subprocess.CalledProcessError) as error:
-        raise ReleaseError(f"command failed: {' '.join(arguments)}: {error}") from error
+        captured = (
+            error.stderr
+            if isinstance(error, subprocess.CalledProcessError)
+            else None
+        )
+        replay(captured)
+        detail = f": {captured.strip()}" if replay_stderr and captured else ""
+        raise ReleaseError(
+            f"command failed: {' '.join(arguments)}: {error}{detail}"
+        ) from error
+    replay(completed.stderr)
+    return completed
 
 
 def _git(root: Path, *arguments: str) -> str:
@@ -265,23 +290,30 @@ def _build(
             shutil.rmtree(build_dir)
         environment = os.environ.copy()
         environment["SOURCE_DATE_EPOCH"] = str(source_date_epoch)
-        _run(
-            [
-                "cmake",
-                "-S",
-                "nv-attestation-cli",
-                "-B",
-                str(build_dir),
-                "-DUSE_SYSTEM_NVAT=OFF",
-                "-DUSE_SYSTEM_DEPS=OFF",
-                "-DBUILD_TESTING=OFF",
-                "-DBUILD_SHARED_LIBS=ON",
-                "-DCMAKE_BUILD_TYPE=Release",
-                f"-DCMAKE_OSX_DEPLOYMENT_TARGET={target['abi_floor']['macos']}",
-            ],
-            cwd=root,
-            env=environment,
-        )
+        try:
+            _run(
+                [
+                    "cmake",
+                    "-S",
+                    "nv-attestation-cli",
+                    "-B",
+                    str(build_dir),
+                    "-DUSE_SYSTEM_NVAT=OFF",
+                    "-DUSE_SYSTEM_DEPS=OFF",
+                    "-DBUILD_TESTING=OFF",
+                    "-DBUILD_SHARED_LIBS=ON",
+                    "-DCMAKE_BUILD_TYPE=Release",
+                    f"-DCMAKE_OSX_DEPLOYMENT_TARGET={target['abi_floor']['macos']}",
+                ],
+                cwd=root,
+                env=environment,
+                text=True,
+                stderr=subprocess.PIPE,
+            )
+        except ReleaseError as error:
+            raise ReleaseError(
+                f"{target['id']} native CMake configure failed: {error}"
+            ) from error
         _run(
             ["cmake", "--build", str(build_dir), "-j"],
             cwd=root,
