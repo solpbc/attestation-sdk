@@ -35,6 +35,9 @@ generate_root_cert() {
     echo "Creating Root CA configuration..."
     ROOT_CA_CNF="${CERT_DIR}/root_ca.cnf"
     cat > "${ROOT_CA_CNF}" <<EOF
+[ req ]
+distinguished_name = req_dn
+[ req_dn ]
 [ v3_ca ]
 subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid:always,issuer:always # For a self-signed root, AKID refers to itself
@@ -183,6 +186,9 @@ generate_leaf_cert_wrong_signature() {
     WRONG_ROOT_CA_CNF="${CERT_DIR}/wrong_root_ca.cnf"
 
     cat > "${WRONG_ROOT_CA_CNF}" <<EOF
+[ req ]
+distinguished_name = req_dn
+[ req_dn ]
 [ v3_ca ]
 subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid:always,issuer:always
