@@ -92,6 +92,17 @@ class AppleCMakeTest(unittest.TestCase):
                     )
                     module.parent.mkdir(parents=True, exist_ok=True)
                     os.symlink(MODULE, module)
+                    boundary_module = (
+                        root
+                        / "nv-attestation-sdk-cpp/cmake/"
+                        "nvat_header_consumer_boundary.cmake"
+                    )
+                    os.symlink(
+                        ROOT
+                        / "nv-attestation-sdk-cpp/cmake/"
+                        "nvat_header_consumer_boundary.cmake",
+                        boundary_module,
+                    )
                     sdk = root / "MacOSX.sdk"
                     sdk.mkdir()
                     result = root / "result.txt"

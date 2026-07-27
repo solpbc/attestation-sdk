@@ -9,6 +9,7 @@ get_filename_component(_sdk_cmake_dir "${CMAKE_CURRENT_SOURCE_DIR}/../cmake" REA
 list(APPEND CMAKE_MODULE_PATH "${_sdk_cmake_dir}")
 
 include(nvat_fetch_gtest)
+include(nvat_header_consumer_boundary)
 
 find_package(CURL REQUIRED)
 find_package(LibXml2 REQUIRED)
@@ -175,11 +176,10 @@ target_link_libraries(nv-attestation-unit-tests PRIVATE
     own-jwt-cpp
 )
 
-# spdlog/fmt headers needed for compilation (nvat has them statically linked, no need to link again)
-target_include_directories(nv-attestation-unit-tests PRIVATE
+nvat_target_include_pinned_logging_headers(
+    nv-attestation-unit-tests
+    ORDINARY
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
-    ${spdlog_SOURCE_DIR}/include
-    ${fmt_SOURCE_DIR}/include
 )
 
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)

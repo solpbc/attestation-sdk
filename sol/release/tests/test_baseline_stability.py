@@ -23,11 +23,14 @@ generate_dependencies = importlib.util.module_from_spec(GENERATOR_SPEC)
 GENERATOR_SPEC.loader.exec_module(generate_dependencies)
 
 
-BASELINE = "46c10e4808965d6c065d62dece0071a8ff1624da"
+BASELINE = "22065d840cbcc8ff457ac224da0df299a4e23b3f"
 TARGETS = Path("sol/release/targets.toml")
 AUTHORITY = Path("sol/release/release_rail/authority.py")
 SDK_CMAKE = Path("nv-attestation-sdk-cpp/CMakeLists.txt")
 CLI_CMAKE = Path("nv-attestation-cli/CMakeLists.txt")
+HEADER_BOUNDARY = Path(
+    "nv-attestation-sdk-cpp/cmake/nvat_header_consumer_boundary.cmake"
+)
 PROJECT = re.compile(
     r"^project\(([^\s)]+)\s+VERSION\s+([^\s)]+)\)$", re.MULTILINE
 )
@@ -177,6 +180,42 @@ class BaselineStabilityTest(unittest.TestCase):
         self.assertEqual(
             set_validator.release_version(ROOT, authority.load()), expected
         )
+
+    def test_header_boundary_helper_declares_no_dependency_coordinates(self):
+        source = self.source(HEADER_BOUNDARY).decode()
+        for token in (
+            "FetchContent_Declare",
+            "ExternalProject_Add",
+            "GIT_REPOSITORY",
+            "GIT_TAG",
+            "URL",
+            "URL_HASH",
+        ):
+            with self.subTest(token=token):
+                self.assertNotIn(token, source)
+
+    def test_compiled_warning_exemption_is_byte_identical(self):
+        function_pattern = re.compile(
+            rb"^function\(nvat_exempt_compiled_third_party\b.*?"
+            rb"^endfunction\(\)$",
+            re.MULTILINE | re.DOTALL,
+        )
+        call_pattern = re.compile(
+            rb"^nvat_exempt_compiled_third_party\([^\r\n]*\)$",
+            re.MULTILINE,
+        )
+        current_source = self.source(SDK_CMAKE)
+        baseline_source = self.baseline(SDK_CMAKE)
+        current = (
+            function_pattern.findall(current_source),
+            call_pattern.findall(current_source),
+        )
+        baseline = (
+            function_pattern.findall(baseline_source),
+            call_pattern.findall(baseline_source),
+        )
+        self.assertEqual(tuple(map(len, current)), (1, 2))
+        self.assertEqual(current, baseline)
 
 
 if __name__ == "__main__":
