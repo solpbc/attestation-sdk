@@ -56,7 +56,7 @@ def write_interface_stub(path, target, alias):
     (path / "include").mkdir()
 
 
-def warning_fixture_prepare(state, missing_targets=()):
+def warning_fixture_prepare(state=None, missing_targets=()):
     missing_targets = set(missing_targets)
 
     def prepare(root):
@@ -115,10 +115,11 @@ def warning_fixture_prepare(state, missing_targets=()):
                 "spdlog_SOURCE_DIR": compiled["spdlog"],
             }
         )
-        state["third_party_roots"] = tuple(compiled.values())
-        state["root"] = root
-        state["fmt"] = compiled["fmt"]
-        state["spdlog"] = compiled["spdlog"]
+        if state is not None:
+            state["third_party_roots"] = tuple(compiled.values())
+            state["root"] = root
+            state["fmt"] = compiled["fmt"]
+            state["spdlog"] = compiled["spdlog"]
         arguments = [
             "-DUSE_SYSTEM_NVAT=OFF",
             "-DUSE_SYSTEM_DEPS=OFF",
@@ -137,7 +138,7 @@ def warning_fixture_prepare(state, missing_targets=()):
     return prepare
 
 
-def installed_header_fixture_prepare(state):
+def installed_header_fixture_prepare(state=None):
     def prepare(root):
         cli11 = root / "cli11"
         write_interface_stub(cli11, "CLI11", "CLI11::CLI11")
@@ -166,16 +167,17 @@ def installed_header_fixture_prepare(state):
         library = installed / "libnvat.so"
         library.touch()
 
-        state.update(
-            {
-                "root": root,
-                "fmt": fmt.resolve(),
-                "spdlog": spdlog.resolve(),
-                "cli11": (cli11 / "include").resolve(),
-                "json": (json_stub / "include").resolve(),
-                "nvat_include": include.resolve(),
-            }
-        )
+        if state is not None:
+            state.update(
+                {
+                    "root": root,
+                    "fmt": fmt.resolve(),
+                    "spdlog": spdlog.resolve(),
+                    "cli11": (cli11 / "include").resolve(),
+                    "json": (json_stub / "include").resolve(),
+                    "nvat_include": include.resolve(),
+                }
+            )
         return [
             "-DUSE_SYSTEM_NVAT=ON",
             "-DBUILD_SHARED_LIBS=ON",
