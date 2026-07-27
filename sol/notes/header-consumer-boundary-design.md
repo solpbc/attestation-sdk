@@ -186,9 +186,10 @@ appends `include`, and checks:
 1. the root variable is defined and nonempty;
 2. its `<source-root>/include` directory exists;
 3. the named relative public header exists beneath that include root;
-4. the file contains every exact identity line recorded for the pin.
+4. `file(STRINGS ... REGEX "^<identity>$")` matches every identity as a
+   complete line, rejecting longer or commented-out near matches.
 
-The same spdlog root intentionally has two records. Prep Q2 measured
+The same spdlog root intentionally has four records. Prep Q2 measured
 `spdlog/version.h` as the spdlog 1.14.1 identity and
 `spdlog/fmt/bundled/core.h` as fmt 10.2.1. The bundled identity is required
 because first-party TUs link spdlog through `$<TARGET_FILE:spdlog>` rather than
@@ -267,7 +268,10 @@ root would also be de-systemized. Scoping the property to
 `USE_SYSTEM_NVAT=ON` avoids exposing embedded mode to that future collateral
 and makes the reason for the property adjacent to the imported nvat creation.
 Installed mode retains the known future risk; command tests must inventory all
-linked interface roots so such an acquisition change is visible.
+linked interface roots for the current topology. A future CLI11/json change to
+an imported target is a documented but not test-detectable collateral risk:
+`NO_SYSTEM_FROM_IMPORTED` would produce the same ordinary classification the
+fixture currently expects.
 
 Rejected alternatives:
 
@@ -552,11 +556,11 @@ Rejected alternatives:
 
 | acceptance criterion | test inventory | closure |
 | --- | --- | --- |
-| AC1 — all four first-party consumers use one closed split and only exact pinned fmt/spdlog roots become system-classified | `test_header_consumer_boundary.py::test_helper_registry_and_all_four_calls_are_closed`; embedded/installed vector tests | Extracts the sole five-record registry, inventories all four call sites, applies one canonical conflict relation, and rejects extra/missing/conflicting roots. |
-| AC2 — embedded `nvat` and `nvattest` preserve every first-party/generated root as `-I` and classify both pins as system | `::test_embedded_production_include_vectors` | Inspects real offline production commands for both compile owners. |
-| AC3 — installed `nvattest` has pinned roots system, installed nvat/CLI11/json ordinary, and no embedded or ambient contamination | `::test_installed_production_include_vectors_are_isolated` | Requires no embedded build directory, no SDK/nvat compile command, exactly six CLI commands, and every include root beneath the CLI source or isolated fixture. |
+| AC1 — all four first-party consumers use one closed split and only exact pinned fmt/spdlog roots become system-classified | `test_header_consumer_boundary.py::test_helper_registry_and_all_four_calls_are_closed`; embedded/installed vector tests | Extracts the sole five-record registry, inventories all four call sites, requires both helper include calls to remain private, applies one canonical conflict relation, and rejects extra/missing/conflicting roots. |
+| AC2 — embedded `nvat` and `nvattest` preserve every first-party/generated root as `-I` and classify both pins as system | `::test_embedded_production_include_vectors` | Inspects every real offline production command owned by both compile owners. |
+| AC3 — installed `nvattest` has pinned roots system, installed nvat/CLI11/json ordinary, and no embedded or ambient contamination | `::test_installed_production_include_vectors_are_isolated` | Requires no embedded build directory, no SDK/nvat compile command, exactly six CLI commands, and checks every include root in every command against the CLI source or isolated fixture. |
 | AC4 — the extracted classification mechanism works at the declared floor | `::test_extracted_boundary_fixture_with_release_cmake`; `::test_extracted_boundary_fixture_with_real_cmake_311_when_available` | The same extracted statements/assertions always run under release CMake; real 3.11 is no-network and explicitly skips when absent. It is not represented as a full production configure. |
-| AC5 — every measured pinned public identity fails closed from one truth source | `::test_helper_registry_and_all_four_calls_are_closed`; `::test_invalid_exact_pinned_boundary_fails_at_production_cmake_seam` | Rejects non-four-field records, requires both root variables, and corrupts every record's declared identity in turn. |
+| AC5 — every measured pinned public identity fails closed from one truth source | `::test_helper_registry_and_all_four_calls_are_closed`; `::test_invalid_exact_pinned_boundary_fails_at_production_cmake_seam` | Rejects non-four-field records, requires both root variables, and covers missing/empty variables, missing include roots, missing headers, exact/near/commented identities, and ordinary-within-pinned overlap. |
 | AC6 — system classification suppresses header-origin warnings but not ordinary headers or use-site deprecations | `::test_compiler_observes_header_boundary_and_use_site` | Runs all three proofs through a configured first-party command and asserts `-Wsystem-headers` is absent. |
 | AC7 — warning vectors and demotion policy are preserved exactly | unchanged `test_warning_policy.py::test_modern_effective_warning_commands_are_exact_and_undemoted` plus its `EXPECTED_FIRST_PARTY_WARNINGS`/`ACCEPTED_DEMOTIONS` | Continues to cover `nvat` and `nvattest`, exact order/loss, `-w`, `-Wno-error*`, and any newly added `-Wno-*`; no parallel vector truth source is added. |
 | AC8 — authority, coordinates, target IDs, versions, compiled-warning exemptions, and hard boundaries do not drift | retained `test_baseline_stability.py` comparisons plus the two D8 targeted assertions | Rebases to the authorized baseline without duplicating dependency-coordinate machinery or touching `targets.toml`. |
@@ -692,8 +696,9 @@ actual commands:
 /usr/bin/c++ -DXMLSEC_CRYPTO_OPENSSL=1 -DXMLSEC_NO_CRYPTO_DYNAMIC_LOADING=1 -DXMLSEC_NO_FTP=1 -DXMLSEC_NO_GOST2012=1 -DXMLSEC_NO_GOST=1 -DXMLSEC_NO_MD5=1 -DXMLSEC_NO_SIZE_T -DXMLSEC_NO_XSLT=1 -D__XMLSEC_FUNCTION__=__func__ -Dnvat_EXPORTS -I/home/jer/.hopper/worktrees/dvid4m3p/build/boundary-embedded/nv-attestation-sdk-build/include -I/home/jer/.hopper/worktrees/dvid4m3p/nv-attestation-sdk-cpp/src -I/home/jer/.hopper/worktrees/dvid4m3p/nv-attestation-sdk-cpp/include -I/home/jer/.hopper/worktrees/dvid4m3p/build/boundary-embedded/_deps/regorus-src/bindings/ffi -I/home/jer/.hopper/worktrees/dvid4m3p/build/boundary-embedded/_deps/jwt-cpp-src/include -I/home/jer/.hopper/worktrees/dvid4m3p/build/boundary-embedded/_deps/json-src/include -isystem /home/jer/.hopper/worktrees/dvid4m3p/build/boundary-embedded/_deps/fmt-src/include -isystem /home/jer/.hopper/worktrees/dvid4m3p/build/boundary-embedded/_deps/spdlog-src/include -isystem /home/jer/.hopper/worktrees/dvid4m3p/build/boundary-embedded/xmlsec-install/include/xmlsec1 -isystem /home/jer/.hopper/worktrees/dvid4m3p/build/boundary-embedded/libxml2-install/include/libxml2 -isystem /home/jer/.hopper/worktrees/dvid4m3p/build/boundary-embedded/openssl-install/include -isystem /home/jer/.hopper/worktrees/dvid4m3p/build/boundary-embedded/curl-install/include -O3 -DNDEBUG -std=gnu++14 -fPIC -Wall -Wextra -Wpedantic -pedantic -Wno-unused -Wno-unused-parameter -ffile-prefix-map=/home/jer/.hopper/worktrees/dvid4m3p/nv-attestation-cli/src/= -Wno-c++17-extensions -Werror -o CMakeFiles/nvat.dir/src/nvat.cpp.o -c /home/jer/.hopper/worktrees/dvid4m3p/nv-attestation-sdk-cpp/src/nvat.cpp
 ```
 
-An isolated installed configure using the real offline-populated fmt, spdlog,
-json, and CLI11 source trees generated:
+A target- and build-isolated, source-reusing installed configure used the real
+offline-populated fmt, spdlog, json, and CLI11 source trees from the embedded
+build and generated:
 
 ```text
 /usr/bin/c++  -I/home/jer/.hopper/worktrees/dvid4m3p/nv-attestation-cli/src -I/home/jer/.hopper/worktrees/dvid4m3p/build/boundary-installed-real -I/home/jer/.hopper/worktrees/dvid4m3p/build/boundary-installed-fixture/installed/include -I/home/jer/.hopper/worktrees/dvid4m3p/build/boundary-embedded/_deps/json-src/include -isystem /home/jer/.hopper/worktrees/dvid4m3p/build/boundary-embedded/_deps/fmt-src/include -isystem /home/jer/.hopper/worktrees/dvid4m3p/build/boundary-embedded/_deps/spdlog-src/include -isystem /home/jer/.hopper/worktrees/dvid4m3p/build/boundary-embedded/_deps/cli11-src/include -O3 -DNDEBUG -std=gnu++14 -Werror -o CMakeFiles/nvattest.dir/src/main.cpp.o -c /home/jer/.hopper/worktrees/dvid4m3p/nv-attestation-cli/src/main.cpp
@@ -706,6 +711,11 @@ both pinned roots are `-isystem`. Real CLI11 independently publishes a system
 include; json remains ordinary. Those are other-dependency classifications,
 not additions to the helper's closed pinned-root set.
 
+The automated installed fixture at
+`sol/release/tests/cmake_support.py:140-191` is the fully isolated proof: it
+creates every stub source, installed artifact, and build beneath one temporary
+root and rejects any include root outside that fixture or the CLI source tree.
+
 The settled validation observed:
 
 * the warning-policy suite passed all 6 tests unchanged, including the exact
@@ -714,8 +724,9 @@ The settled validation observed:
   explicitly skipped only the unavailable-by-default real-3.11 arm;
 * Apple CMake passed 14 tests, driver passed 23, and baseline stability passed
   6;
-* `make rail-test` passed 120 tests with one explicit optional-3.11 skip plus
-  ShellCheck in 8.70 seconds wall clock, versus prep Q7's 6.07 seconds;
+* the follow-up `make rail-test` passed 120 tests with one explicit
+  optional-3.11 skip plus ShellCheck in 14.22 seconds wall clock, versus prep
+  Q7's 6.07 seconds;
 * the explicitly provisioned
   `/tmp/nvat-warning-research/cmake-3.11.4-Linux-x86_64/bin/cmake` arm passed
   all 8 header-boundary tests with no skip;

@@ -1,7 +1,5 @@
-import json
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import tempfile
@@ -98,6 +96,15 @@ def command_for(commands, source_suffix):
     return matches[0]
 
 
+def commands_under(commands, root):
+    root = Path(root).resolve()
+    return [
+        command
+        for command in commands
+        if Path(command["file"]).resolve().is_relative_to(root)
+    ]
+
+
 def extracted_helper_call():
     source = CLI_CMAKE.read_text(encoding="utf-8")
     matches = HELPER_CALL.findall(source)
@@ -188,6 +195,21 @@ class HeaderConsumerBoundaryTest(unittest.TestCase):
             "${_nvat_pinned_roots})",
             module,
         )
+        helper = re.search(
+            r"^function\(nvat_target_include_pinned_logging_headers\b.*?"
+            r"^endfunction\(\)$",
+            module,
+            re.MULTILINE | re.DOTALL,
+        ).group(0)
+        include_calls = re.findall(
+            r"target_include_directories\(\$\{target\}\s+([^)]+)\)",
+            helper,
+        )
+        self.assertEqual(len(include_calls), 2)
+        self.assertRegex(include_calls[0], r"^PRIVATE\b")
+        self.assertRegex(include_calls[1], r"^SYSTEM PRIVATE\b")
+        for call in include_calls:
+            self.assertNotRegex(call, r"\b(?:PUBLIC|INTERFACE)\b")
         targets = set()
         for path in CONSUMER_FILES:
             source = path.read_text(encoding="utf-8")
@@ -205,25 +227,51 @@ class HeaderConsumerBoundaryTest(unittest.TestCase):
                 "nv-attestation-unit-tests",
             },
         )
+        cli = CLI_CMAKE.read_text(encoding="utf-8")
+        property_pattern = (
+            "set_property(TARGET nvattest PROPERTY "
+            "NO_SYSTEM_FROM_IMPORTED ON)"
+        )
+        self.assertEqual(cli.count(property_pattern), 1)
+        installed_start = cli.index("if(USE_SYSTEM_NVAT)")
+        embedded_start = cli.index("else()", installed_start)
+        self.assertLess(installed_start, cli.index(property_pattern))
+        self.assertLess(cli.index(property_pattern), embedded_start)
+        for path in CONSUMER_FILES[2:]:
+            self.assertNotIn(
+                "NO_SYSTEM_FROM_IMPORTED",
+                path.read_text(encoding="utf-8"),
+            )
 
     def test_embedded_production_include_vectors(self):
-        nvat = command_for(self.embedded_commands, "/src/nvat.cpp")
-        nvattest = command_for(self.embedded_commands, "/src/main.cpp")
-        self.assert_pinned_system(nvat, self.embedded_state)
-        self.assert_pinned_system(nvattest, self.embedded_state)
-        nvat_ordinary, _ = include_roots(nvat)
-        cli_ordinary, _ = include_roots(nvattest)
-        self.assertIn((SDK_CMAKE.parent / "src").resolve(), nvat_ordinary)
-        self.assertIn(
-            (self.embedded_build / "nv-attestation-sdk-build/include").resolve(),
-            nvat_ordinary,
-        )
-        self.assertIn((CLI_DIR / "src").resolve(), cli_ordinary)
-        self.assertIn(self.embedded_build.resolve(), cli_ordinary)
-        self.assertIn(
-            (self.embedded_build / "nv-attestation-sdk-build/include").resolve(),
-            cli_ordinary,
-        )
+        nvat_commands = commands_under(self.embedded_commands, SDK_CMAKE.parent)
+        nvattest_commands = commands_under(self.embedded_commands, CLI_DIR)
+        self.assertTrue(nvat_commands)
+        self.assertEqual(len(nvattest_commands), 6)
+        for command in nvat_commands:
+            self.assert_pinned_system(command, self.embedded_state)
+            ordinary, _ = include_roots(command)
+            self.assertIn((SDK_CMAKE.parent / "src").resolve(), ordinary)
+            self.assertIn((SDK_CMAKE.parent / "include").resolve(), ordinary)
+            self.assertIn(
+                (
+                    self.embedded_build
+                    / "nv-attestation-sdk-build/include"
+                ).resolve(),
+                ordinary,
+            )
+        for command in nvattest_commands:
+            self.assert_pinned_system(command, self.embedded_state)
+            ordinary, _ = include_roots(command)
+            self.assertIn((CLI_DIR / "src").resolve(), ordinary)
+            self.assertIn(self.embedded_build.resolve(), ordinary)
+            self.assertIn(
+                (
+                    self.embedded_build
+                    / "nv-attestation-sdk-build/include"
+                ).resolve(),
+                ordinary,
+            )
 
     def test_installed_production_include_vectors_are_isolated(self):
         self.assertEqual(len(self.installed_commands), 6)
@@ -236,52 +284,203 @@ class HeaderConsumerBoundaryTest(unittest.TestCase):
         self.assertFalse(
             (self.installed_build / "nv-attestation-sdk-build").exists()
         )
-        command = command_for(self.installed_commands, "/src/main.cpp")
-        self.assert_pinned_system(command, self.installed_state)
-        ordinary, _system = include_roots(command)
-        self.assertIn(self.installed_state["nvat_include"], ordinary)
-        self.assertIn(self.installed_state["cli11"], ordinary)
-        self.assertIn(self.installed_state["json"], ordinary)
         allowed_roots = (CLI_DIR.resolve(), self.installed_state["root"].resolve())
-        for root in ordinary + _system:
-            self.assertTrue(
-                any(root.is_relative_to(allowed) for allowed in allowed_roots),
-                f"ambient include root: {root}",
-            )
+        for command in self.installed_commands:
+            self.assert_pinned_system(command, self.installed_state)
+            ordinary, system = include_roots(command)
+            self.assertIn(self.installed_state["nvat_include"], ordinary)
+            self.assertIn(self.installed_state["cli11"], ordinary)
+            self.assertIn(self.installed_state["json"], ordinary)
+            for root in ordinary + system:
+                self.assertTrue(
+                    any(root.is_relative_to(allowed) for allowed in allowed_roots),
+                    f"ambient include root: {root}",
+                )
+
+    def copied_cli_source(self, root, before_call="", extra_ordinary=""):
+        source = root / "nv-attestation-cli"
+        source.mkdir()
+        (source / "src").symlink_to(CLI_DIR / "src")
+        (root / "nv-attestation-sdk-cpp").symlink_to(SDK_CMAKE.parent)
+        text = CLI_CMAKE.read_text(encoding="utf-8")
+        matches = [
+            match
+            for match in HELPER_CALL.finditer(text)
+            if match.group(1) == "nvattest"
+        ]
+        self.assertEqual(len(matches), 1)
+        match = matches[0]
+        call = match.group(0)
+        if extra_ordinary:
+            call = call[:-1] + f"    {extra_ordinary}\n)"
+        text = text[:match.start()] + before_call + call + text[match.end():]
+        (source / "CMakeLists.txt").write_text(text, encoding="utf-8")
+        return source
 
     def test_invalid_exact_pinned_boundary_fails_at_production_cmake_seam(self):
         records = pinned_header_boundary_records()
-        for index, record in enumerate(records):
-            with self.subTest(record=record):
-                state = {}
-                base = installed_header_fixture_prepare(state)
+        first_by_root = {}
+        for record in records:
+            first_by_root.setdefault(record[0], record)
 
-                def prepare(root, record=record):
-                    arguments, project_include = base(root)
-                    root_variable, _pin, relative_header, identity = record
+        def configure_case(mutate, source=None):
+            state = {}
+            base = installed_header_fixture_prepare(state)
+
+            def prepare(root):
+                arguments, project_include = base(root)
+                mutate(root, state)
+                return arguments, project_include
+
+            temporary, completed, _, _, _ = production_configure(
+                source or CLI_DIR,
+                fixture_prepare=prepare,
+            )
+            return temporary, completed
+
+        for root_variable, record in first_by_root.items():
+            for statement in (
+                f"unset({root_variable})",
+                f'set({root_variable} "")',
+            ):
+                with self.subTest(
+                    failure="missing/empty source variable",
+                    record=record,
+                    statement=statement,
+                ):
+                    def source(
+                        root,
+                        statement=statement,
+                    ):
+                        return self.copied_cli_source(
+                            root,
+                            before_call=statement + "\n",
+                        )
+
+                    temporary, completed = configure_case(
+                        lambda _root, _state: None,
+                        source=source,
+                    )
+                    with temporary:
+                        self.assertNotEqual(completed.returncode, 0)
+                        self.assertIn(
+                            f"expected populated {record[1]} source variable "
+                            f"{root_variable}",
+                            re.sub(r"\s+", " ", completed.stderr),
+                        )
+
+            with self.subTest(failure="absent include root", record=record):
+                def remove_include(_root, state, root_variable=root_variable):
                     source_root = (
                         state["fmt"]
                         if root_variable == "fmt_SOURCE_DIR"
                         else state["spdlog"]
                     )
-                    header = source_root / "include" / relative_header
-                    content = header.read_text(encoding="utf-8")
-                    header.write_text(
-                        content.replace(identity, f"BROKEN_IDENTITY_{index}", 1),
-                        encoding="utf-8",
-                    )
-                    return arguments, project_include
+                    shutil.rmtree(source_root / "include")
 
-                temporary, completed, _, _, _ = production_configure(
-                    CLI_DIR,
-                    fixture_prepare=prepare,
-                )
+                temporary, completed = configure_case(remove_include)
                 with temporary:
                     self.assertNotEqual(completed.returncode, 0)
                     self.assertIn(
-                        f"expected '{record[2]}' to identify {record[1]}",
+                        f"expected {record[1]} include root",
                         re.sub(r"\s+", " ", completed.stderr),
                     )
+
+        headers = {}
+        for record in records:
+            headers.setdefault((record[0], record[2]), record)
+        for (root_variable, relative_header), record in headers.items():
+            with self.subTest(failure="absent public header", record=record):
+                def remove_header(
+                    _root,
+                    state,
+                    root_variable=root_variable,
+                    relative_header=relative_header,
+                ):
+                    source_root = (
+                        state["fmt"]
+                        if root_variable == "fmt_SOURCE_DIR"
+                        else state["spdlog"]
+                    )
+                    (source_root / "include" / relative_header).unlink()
+
+                temporary, completed = configure_case(remove_header)
+                with temporary:
+                    self.assertNotEqual(completed.returncode, 0)
+                    self.assertIn(
+                        f"expected {record[1]} public header "
+                        f"'{relative_header}'",
+                        re.sub(r"\s+", " ", completed.stderr),
+                    )
+
+        for index, record in enumerate(records):
+            for variant in ("missing", "near", "commented"):
+                with self.subTest(
+                    failure="identity mismatch",
+                    record=record,
+                    variant=variant,
+                ):
+                    def break_identity(
+                        _root,
+                        state,
+                        record=record,
+                        variant=variant,
+                        index=index,
+                    ):
+                        root_variable, _pin, relative_header, identity = record
+                        source_root = (
+                            state["fmt"]
+                            if root_variable == "fmt_SOURCE_DIR"
+                            else state["spdlog"]
+                        )
+                        header = source_root / "include" / relative_header
+                        content = header.read_text(encoding="utf-8")
+                        replacements = {
+                            "missing": f"BROKEN_IDENTITY_{index}",
+                            "near": identity + "0",
+                            "commented": "// " + identity,
+                        }
+                        header.write_text(
+                            content.replace(
+                                identity,
+                                replacements[variant],
+                                1,
+                            ),
+                            encoding="utf-8",
+                        )
+
+                    temporary, completed = configure_case(break_identity)
+                    with temporary:
+                        self.assertNotEqual(completed.returncode, 0)
+                        self.assertIn(
+                            f"expected '{record[2]}' to identify {record[1]}",
+                            re.sub(r"\s+", " ", completed.stderr),
+                        )
+
+        overlap_record = first_by_root["fmt_SOURCE_DIR"]
+        overlap_path = {}
+
+        def create_overlap(_root, state):
+            path = state["fmt"] / "include" / "ordinary"
+            path.mkdir()
+            overlap_path["value"] = path
+
+        def overlap_source(root):
+            return self.copied_cli_source(
+                root,
+                extra_ordinary=str(overlap_path["value"]),
+            )
+
+        temporary, completed = configure_case(
+            create_overlap,
+            source=overlap_source,
+        )
+        with temporary:
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn(
+                f"overlaps pinned {overlap_record[1]} root",
+                re.sub(r"\s+", " ", completed.stderr),
+            )
 
     def write_reduced_fixture(self, root, installed):
         source = root / ("installed" if installed else "embedded")

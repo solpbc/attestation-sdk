@@ -28,12 +28,14 @@ function(nvat_target_include_pinned_logging_headers target)
   if(NVAT_HEADER_UNPARSED_ARGUMENTS OR NOT NVAT_HEADER_ORDINARY)
     message(FATAL_ERROR
       "${target} pinned-header boundary failed: expected "
-      "nvat_target_include_pinned_logging_headers(<target> ORDINARY <root>...)")
+      "nvat_target_include_pinned_logging_headers(<target> ORDINARY <root>...); "
+      "pass an existing first-party target and at least one ordinary root")
   endif()
   if(NOT TARGET ${target})
     message(FATAL_ERROR
       "${target} pinned-header boundary failed: expected existing first-party "
-      "consumer target ${target}")
+      "consumer target ${target}; create the target before applying its pinned "
+      "header boundary")
   endif()
 
   set(_nvat_pinned_roots)
@@ -44,7 +46,8 @@ function(nvat_target_include_pinned_logging_headers target)
     if(NOT _nvat_field_count EQUAL 4)
       message(FATAL_ERROR
         "${target} pinned-header boundary failed: malformed pinned boundary "
-        "record '${_nvat_record}'; expected exactly four fields")
+        "record '${_nvat_record}'; repair the sole boundary registry so every "
+        "record has exactly four fields")
     endif()
     list(GET _nvat_fields 0 _nvat_root_variable)
     list(GET _nvat_fields 1 _nvat_pin)
@@ -71,9 +74,9 @@ function(nvat_target_include_pinned_logging_headers target)
         "header '${_nvat_relative_header}' under '${_nvat_include_root}'; verify "
         "the pinned ${_nvat_pin} target layout")
     endif()
-    file(READ "${_nvat_header}" _nvat_header_content)
-    string(FIND "${_nvat_header_content}" "${_nvat_identity}" _nvat_identity_index)
-    if(_nvat_identity_index EQUAL -1)
+    file(STRINGS "${_nvat_header}" _nvat_identity_lines
+      REGEX "^${_nvat_identity}$")
+    if(NOT _nvat_identity_lines)
       message(FATAL_ERROR
         "${target} pinned-header boundary failed: expected "
         "'${_nvat_relative_header}' to identify ${_nvat_pin}; verify the pinned "
@@ -95,7 +98,8 @@ function(nvat_target_include_pinned_logging_headers target)
     elseif(_nvat_ordinary MATCHES "\\$<")
       message(FATAL_ERROR
         "${target} pinned-header boundary failed: unsupported ordinary-root "
-        "generator expression '${_nvat_ordinary}'")
+        "generator expression '${_nvat_ordinary}'; pass a plain path or one "
+        "$<BUILD_INTERFACE:path> expression")
     endif()
     if(NOT IS_ABSOLUTE "${_nvat_ordinary_path}")
       set(_nvat_ordinary_path
@@ -104,7 +108,8 @@ function(nvat_target_include_pinned_logging_headers target)
     if(NOT EXISTS "${_nvat_ordinary_path}")
       message(FATAL_ERROR
         "${target} pinned-header boundary failed: expected ordinary root "
-        "'${_nvat_ordinary_path}' to exist")
+        "'${_nvat_ordinary_path}' to exist; create or populate the first-party "
+        "root before applying its pinned header boundary")
     endif()
     get_filename_component(_nvat_canonical_ordinary
       "${_nvat_ordinary_path}" REALPATH)
