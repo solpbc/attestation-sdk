@@ -32,10 +32,35 @@ class AuthorityTest(unittest.TestCase):
         self.assertNotIn("required_tool_versions", data.targets["macos-arm64"])
         self.assertEqual(data.release["sol_revision"], 2)
         self.assertRegex(data.release["upstream_base_commit"], r"^[0-9a-f]{40}$")
+        macos = data.targets["macos-arm64"]
         self.assertEqual(
-            data.targets["macos-arm64"]["macho_install_id"],
+            macos["members"][1:4],
+            [
+                {
+                    "path": "lib/libnvat.dylib",
+                    "kind": "symlink",
+                    "link_target": "libnvat.1.dylib",
+                },
+                {
+                    "path": "lib/libnvat.1.dylib",
+                    "kind": "symlink",
+                    "link_target": "libnvat.1.2.2.dylib",
+                },
+                {
+                    "path": "lib/libnvat.1.2.2.dylib",
+                    "kind": "regular",
+                },
+            ],
+        )
+        self.assertEqual(
+            macos["macho_install_id"],
             "@rpath/libnvat.1.dylib",
         )
+        self.assertEqual(
+            macos["macho_rpath"],
+            "@executable_path/../lib",
+        )
+        self.assertEqual(macos["abi_floor"], {"macos": "14.0"})
 
     def test_host_selection_and_incompatible_target_fail_closed(self):
         data = authority.load()
@@ -142,6 +167,7 @@ class AuthorityTest(unittest.TestCase):
                     self.load_mutated(mutate)
 
     def test_accessor_reports_incompatible_forced_target(self):
+        compatible = authority.load().compatible_target()
         result = subprocess.run(
             [
                 sys.executable,
@@ -157,7 +183,7 @@ class AuthorityTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("incompatible with host", result.stderr)
         self.assertIn(
-            f"retry with HOST_TARGET={authority.TARGET_IDS[0]}", result.stderr
+            f"retry with HOST_TARGET={compatible}", result.stderr
         )
 
 

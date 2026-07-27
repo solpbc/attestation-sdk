@@ -22,12 +22,25 @@ function(nvat_configure_apple_system_link_closure)
     REALPATH
   )
 
-  if(NOT TARGET regorus_ffi)
-    message(FATAL_ERROR
-      "Darwin/arm64 CoreFoundation closure failed: static owner target "
-      "regorus_ffi does not exist; create the pinned regorus_ffi target before "
-      "the Apple closure call, then retry")
-  endif()
+  set(
+    _nvat_apple_corrosion_sdk_link_directory
+    "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib"
+  )
+  set(
+    _nvat_apple_rust_owner_targets
+    regorus_ffi
+    regorus_ffi-static
+  )
+  foreach(_nvat_apple_rust_owner_target IN LISTS
+          _nvat_apple_rust_owner_targets)
+    if(NOT TARGET "${_nvat_apple_rust_owner_target}")
+      message(FATAL_ERROR
+        "Darwin/arm64 Rust link-directory closure failed: required owner-chain "
+        "target '${_nvat_apple_rust_owner_target}' does not exist; recreate "
+        "the pinned Corrosion regorus_ffi staticlib targets in a clean build "
+        "directory, then retry")
+    endif()
+  endforeach()
   if(NOT TARGET LibXml2::LibXml2)
     message(FATAL_ERROR
       "Darwin/arm64 iconv closure failed: static owner target "
@@ -40,6 +53,30 @@ function(nvat_configure_apple_system_link_closure)
       "without selected-SDK validation; remove the pre-existing Iconv target "
       "and configure from a clean build directory, then retry")
   endif()
+
+  foreach(_nvat_apple_rust_owner_target IN LISTS
+          _nvat_apple_rust_owner_targets)
+    get_target_property(
+      _nvat_apple_rust_link_directories
+      "${_nvat_apple_rust_owner_target}"
+      INTERFACE_LINK_DIRECTORIES
+    )
+    if(_nvat_apple_rust_link_directories)
+      foreach(_nvat_apple_rust_link_directory IN LISTS
+              _nvat_apple_rust_link_directories)
+        if(NOT _nvat_apple_rust_link_directory STREQUAL
+           _nvat_apple_corrosion_sdk_link_directory)
+          message(FATAL_ERROR
+            "Darwin/arm64 Rust link-directory closure failed: target "
+            "'${_nvat_apple_rust_owner_target}' has unsupported "
+            "INTERFACE_LINK_DIRECTORIES entry "
+            "'${_nvat_apple_rust_link_directory}'; remove the unexpected "
+            "link-directory entry and configure from a clean build directory, "
+            "then retry")
+        endif()
+      endforeach()
+    endif()
+  endforeach()
 
   unset(NVAT_APPLE_ICONV_LIBRARY CACHE)
   set(NVAT_APPLE_ICONV_LIBRARY "NVAT_APPLE_ICONV_LIBRARY-NOTFOUND")
@@ -113,6 +150,13 @@ function(nvat_configure_apple_system_link_closure)
       "select the macOS SDK, then retry")
   endif()
 
+  foreach(_nvat_apple_rust_owner_target IN LISTS
+          _nvat_apple_rust_owner_targets)
+    set_property(
+      TARGET "${_nvat_apple_rust_owner_target}"
+      PROPERTY INTERFACE_LINK_DIRECTORIES ""
+    )
+  endforeach()
   add_library(Iconv::Iconv UNKNOWN IMPORTED)
   set_target_properties(Iconv::Iconv PROPERTIES
     IMPORTED_LOCATION "${_nvat_apple_iconv_real}"

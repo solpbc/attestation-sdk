@@ -172,16 +172,18 @@ class SourceTest(unittest.TestCase):
 
 class DriverPreflightTest(unittest.TestCase):
     def test_missing_target_fails_before_dist_exists(self):
+        compatible = authority.load().compatible_target()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with self.assertRaisesRegex(
                 driver.ReleaseError,
-                rf"release target is required.*make release TARGET={authority.TARGET_IDS[0]}",
+                rf"release target is required.*make release TARGET={compatible}",
             ):
                 driver.release(root, None)
             self.assertFalse((root / "dist").exists())
 
     def test_dirty_source_tree_fails_before_dist_exists(self):
+        target = authority.load().target(authority.TARGET_IDS[0])
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
 
@@ -190,11 +192,22 @@ class DriverPreflightTest(unittest.TestCase):
                     return " M tracked-file"
                 raise AssertionError(arguments)
 
-            with mock.patch.object(driver, "_git", side_effect=git):
-                with self.assertRaisesRegex(
-                    driver.ReleaseError, "release requires a clean source tree"
+            with mock.patch.object(
+                authority.Authority,
+                "compatible_target",
+                return_value=target["id"],
+            ):
+                with mock.patch.object(
+                    authority.Authority,
+                    "require_compatible",
+                    return_value=target,
                 ):
-                    driver.release(root, authority.TARGET_IDS[0])
+                    with mock.patch.object(driver, "_git", side_effect=git):
+                        with self.assertRaisesRegex(
+                            driver.ReleaseError,
+                            "release requires a clean source tree",
+                        ):
+                            driver.release(root, target["id"])
             self.assertFalse((root / "dist").exists())
 
     def test_unavailable_and_hash_mismatched_ca_fail_closed(self):
@@ -377,6 +390,20 @@ class DriverRuntimeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with contextlib.ExitStack() as patches:
+                patches.enter_context(
+                    mock.patch.object(
+                        authority.Authority,
+                        "compatible_target",
+                        return_value=self.target["id"],
+                    )
+                )
+                patches.enter_context(
+                    mock.patch.object(
+                        authority.Authority,
+                        "require_compatible",
+                        return_value=self.target,
+                    )
+                )
                 patches.enter_context(
                     mock.patch.object(
                         driver,
@@ -580,17 +607,34 @@ class DriverRuntimeTest(unittest.TestCase):
     def test_ownership_failure_precedes_dist_creation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with mock.patch.object(driver, "_git", return_value=""):
-                with mock.patch.object(runtime, "select", return_value=self.selection):
-                    with mock.patch.object(
-                        driver,
-                        "_ownership_probe",
-                        side_effect=runtime.RuntimeSelectionError("unsafe mapping"),
-                    ):
-                        with self.assertRaisesRegex(
-                            runtime.RuntimeSelectionError, "unsafe mapping"
+            with mock.patch.object(
+                authority.Authority,
+                "compatible_target",
+                return_value=self.target["id"],
+            ):
+                with mock.patch.object(
+                    authority.Authority,
+                    "require_compatible",
+                    return_value=self.target,
+                ):
+                    with mock.patch.object(driver, "_git", return_value=""):
+                        with mock.patch.object(
+                            runtime,
+                            "select",
+                            return_value=self.selection,
                         ):
-                            driver.release(root, self.target["id"])
+                            with mock.patch.object(
+                                driver,
+                                "_ownership_probe",
+                                side_effect=runtime.RuntimeSelectionError(
+                                    "unsafe mapping"
+                                ),
+                            ):
+                                with self.assertRaisesRegex(
+                                    runtime.RuntimeSelectionError,
+                                    "unsafe mapping",
+                                ):
+                                    driver.release(root, self.target["id"])
             self.assertFalse((root / "dist").exists())
 
     def test_macos_paths_remain_native(self):
