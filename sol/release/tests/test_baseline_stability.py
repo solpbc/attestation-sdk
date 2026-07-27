@@ -252,50 +252,54 @@ class BaselineStabilityTest(unittest.TestCase):
                 self.assertNotIn(token, source)
 
     def test_rust_and_licensing_inventory_is_unchanged(self):
+        baseline_listing = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", BASELINE],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        current_listing = subprocess.run(
+            ["git", "ls-files"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
         baseline_rust = tuple(
             line
-            for line in subprocess.run(
-                [
-                    "git",
-                    "ls-tree",
-                    "-r",
-                    "--name-only",
-                    BASELINE,
-                    "nv-attestation-sdk-rust",
-                ],
-                cwd=ROOT,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.splitlines()
+            for line in baseline_listing
+            if line.startswith("nv-attestation-sdk-rust/")
             if Path(line).name in {"Cargo.toml", "Cargo.lock", "build.rs"}
         )
         current_rust = tuple(
             line
-            for line in subprocess.run(
-                ["git", "ls-files", "nv-attestation-sdk-rust"],
-                cwd=ROOT,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.splitlines()
+            for line in current_listing
+            if line.startswith("nv-attestation-sdk-rust/")
             if Path(line).name in {"Cargo.toml", "Cargo.lock", "build.rs"}
         )
         self.assertEqual(baseline_rust, RUST_INVENTORY)
         self.assertEqual(current_rust, RUST_INVENTORY)
-        self.assertFalse(any(path.endswith("/Cargo.lock") for path in baseline_rust))
-        current_locks = []
-        for product in (
-            ROOT,
-            ROOT / "nv-attestation-sdk-rust",
-            ROOT / "nv-attestation-sdk-cpp",
-            ROOT / "nv-attestation-cli",
-        ):
-            paths = product.glob("Cargo.lock") if product == ROOT else product.rglob(
-                "Cargo.lock"
+        baseline_locks = tuple(
+            line for line in baseline_listing if Path(line).name == "Cargo.lock"
+        )
+        current_locks = tuple(
+            line for line in current_listing if Path(line).name == "Cargo.lock"
+        )
+        self.assertEqual(baseline_locks, ())
+        self.assertEqual(current_locks, ())
+        working_locks = tuple(
+            sorted(
+                path.relative_to(ROOT).as_posix()
+                for path in ROOT.rglob("Cargo.lock")
+                if ".git" not in path.relative_to(ROOT).parts
             )
-            current_locks.extend(paths)
-        self.assertEqual(current_locks, [])
+        )
+        untracked_locks = tuple(
+            path for path in working_locks if path not in set(current_locks)
+        )
+        self.assertEqual(untracked_locks, ())
+        self.assertEqual(working_locks, current_locks)
 
         self.assertEqual(self.source(LICENSE), self.baseline(LICENSE))
         baseline_inputs = self.baseline_dependency_inputs()

@@ -8,6 +8,10 @@ both owners private to shared `nvat`, preserves `nvattest`'s direct link
 surface, and makes a failed native configure identify both the canonical
 release target and the CMake failure.
 
+**Citation basis.** All `nv-attestation-sdk-cpp/CMakeLists.txt` line citations
+in this record refer to the pre-change fork point
+`b75e95ae0c08ac6eaa05673a0cf227b8723e2b58`.
+
 The prep results are settled inputs, not questions for implementation:
 
 * Q1 proved that a `PRIVATE` dependency of shared `nvat` creates no
