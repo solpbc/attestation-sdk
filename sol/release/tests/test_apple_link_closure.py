@@ -1,5 +1,6 @@
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -25,10 +26,29 @@ HELPER = (
     / "nv-attestation-sdk-cpp/cmake/nvat_apple_system_link_closure.cmake"
 )
 PACKAGE_DEPENDENCIES = ("CURL", "LibXml2", "OpenSSL", "spdlog", "xmlsec")
+POISON_ENVIRONMENT_KEYS = (
+    "CMAKE_FIND_ROOT_PATH",
+    "CMAKE_FRAMEWORK_PATH",
+    "CMAKE_LIBRARY_PATH",
+    "CMAKE_PREFIX_PATH",
+    "CMAKE_SYSTEM_PREFIX_PATH",
+    "HOMEBREW_CELLAR",
+    "HOMEBREW_PREFIX",
+    "LDFLAGS",
+    "LIBRARY_PATH",
+)
 
 
 def normalized_output(value):
     return re.sub(r"\s+", " ", value).strip()
+
+
+def sanitized_environment():
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key not in POISON_ENVIRONMENT_KEYS
+    }
 
 
 def extracted_apple_call():
@@ -52,6 +72,13 @@ def library_fragments(target):
         entry["fragment"]
         for entry in target.get("link", {}).get("commandFragments", [])
         if entry.get("role") == "libraries"
+    ]
+
+
+def all_link_fragments(target):
+    return [
+        entry["fragment"]
+        for entry in target.get("link", {}).get("commandFragments", [])
     ]
 
 
@@ -205,7 +232,6 @@ class AppleLinkClosureTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.production_state = {}
         (
             cls.production_temporary,
             cls.production_completed,
@@ -214,7 +240,7 @@ class AppleLinkClosureTest(unittest.TestCase):
             cls.production_build,
         ) = production_configure(
             ROOT / "nv-attestation-cli",
-            fixture_prepare=warning_fixture_prepare(cls.production_state),
+            fixture_prepare=warning_fixture_prepare(),
             query_codemodel=True,
         )
         if cls.production_completed.returncode == 0:
@@ -377,6 +403,70 @@ class AppleLinkClosureTest(unittest.TestCase):
             self.assertNotIn("Iconv", link)
             self.assertNotIn("libiconv", link)
 
+    def test_linux_production_environment_poison_is_inert(self):
+        self.assert_production_configured()
+        with tempfile.TemporaryDirectory() as directory:
+            modeled = Path(directory) / "modeled"
+            homebrew = modeled / "opt/homebrew"
+            intel = modeled / "usr/local"
+            (homebrew / "lib").mkdir(parents=True)
+            (homebrew / "Frameworks").mkdir()
+            (intel / "lib").mkdir(parents=True)
+            (homebrew / "lib/libiconv.tbd").write_text(
+                "poison\n", encoding="utf-8"
+            )
+            (homebrew / "Frameworks/CoreFoundation.framework").mkdir()
+            environment = sanitized_environment()
+            environment.update(
+                {
+                    "CMAKE_PREFIX_PATH": str(homebrew),
+                    "LDFLAGS": (
+                        f"-L{homebrew / 'lib'} "
+                        f"-F{homebrew / 'Frameworks'}"
+                    ),
+                    "LIBRARY_PATH": str(intel / "lib"),
+                }
+            )
+            (
+                temporary,
+                completed,
+                _event_log,
+                records,
+                build,
+            ) = production_configure(
+                ROOT / "nv-attestation-cli",
+                fixture_prepare=warning_fixture_prepare(),
+                query_codemodel=True,
+                env=environment,
+            )
+            with temporary:
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                calls = [
+                    record
+                    for record in records
+                    if record.get("cmd")
+                    == "nvat_configure_apple_system_link_closure"
+                ]
+                self.assertEqual(calls, [])
+                _codemodel, targets = load_codemodel(build)
+                for name in ("nvat", "nvattest"):
+                    with self.subTest(target=name):
+                        self.assertEqual(
+                            normalized_library_fragments(targets[name]),
+                            normalized_library_fragments(
+                                self.production_targets[name]
+                            ),
+                        )
+                for path in (
+                    build
+                    / "nv-attestation-sdk-build/CMakeFiles/nvat.dir/link.txt",
+                    build / "CMakeFiles/nvattest.dir/link.txt",
+                ):
+                    link = path.read_text(encoding="utf-8")
+                    self.assertNotIn("CoreFoundation", link)
+                    self.assertNotIn("Iconv", link)
+                    self.assertNotIn("libiconv", link)
+
     def configure_failure(
         self,
         *,
@@ -384,7 +474,6 @@ class AppleLinkClosureTest(unittest.TestCase):
         corefoundation=True,
         apple=True,
         before_call="",
-        environment=None,
         direct_call=False,
         arguments=(),
     ):
@@ -395,7 +484,6 @@ class AppleLinkClosureTest(unittest.TestCase):
             corefoundation=corefoundation,
             apple=apple,
             before_call=before_call,
-            environment=environment,
             direct_call=direct_call,
         )
         completed = fixture.configure(arguments=arguments)
@@ -512,13 +600,46 @@ class AppleLinkClosureTest(unittest.TestCase):
                 "Iconv target and configure from a clean build directory, then retry",
             )
 
+    def test_helper_rejects_invalid_selected_sdk_roots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            non_directory = root / "not-a-directory"
+            non_directory.write_text("not an SDK directory\n", encoding="utf-8")
+            cases = (
+                ("missing", "unset(NVAT_APPLE_SDKROOT)\n", ""),
+                (
+                    "relative",
+                    'set(NVAT_APPLE_SDKROOT "relative/MacOSX.sdk")\n',
+                    "relative/MacOSX.sdk",
+                ),
+                (
+                    "non-directory",
+                    f'set(NVAT_APPLE_SDKROOT "{non_directory.as_posix()}")\n',
+                    str(non_directory),
+                ),
+            )
+            for name, before_call, observation in cases:
+                with self.subTest(state=name):
+                    fixture = ReducedAppleFixture(
+                        root / name,
+                        before_call=before_call,
+                    )
+                    completed = fixture.configure()
+                    self.assert_exact_diagnostic(
+                        completed,
+                        "Darwin/arm64 system-link closure failed: "
+                        "NVAT_APPLE_SDKROOT is not an absolute existing "
+                        f"directory: '{observation}'; select a valid macOS SDK "
+                        "with xcrun and remove the build directory, then retry",
+                    )
+
     def test_selected_sdk_discovery_rejects_each_poison_independently(self):
         rows = (
-            ("opt/homebrew", "iconv", "prefix"),
-            ("usr/local", "iconv", "library"),
-            ("Library/Frameworks", "corefoundation", "framework"),
-            ("host/usr/lib", "iconv", "find-root"),
-            ("build/root", "iconv", "prefix"),
+            ("opt/homebrew", "iconv", "homebrew-prefix"),
+            ("usr/local", "iconv", "intel-library"),
+            ("Library/Frameworks", "corefoundation", "library-framework"),
+            ("host/usr/lib", "iconv", "host-library"),
+            ("build/root", "iconv", "build-prefix"),
             ("cache/opt/homebrew", "iconv", "cache-iconv"),
             (
                 "cache/usr/local/Library",
@@ -531,67 +652,176 @@ class AppleLinkClosureTest(unittest.TestCase):
             ("CMAKE_FIND_ROOT_PATH", "iconv", "find-root"),
             ("LIBRARY_PATH", "iconv", "env-library"),
             ("LDFLAGS/opt/homebrew", "iconv", "env-ldflags"),
-            ("opt/homebrew/system-prefix", "iconv", "system-prefix"),
+            (
+                "system-prefix/opt/homebrew",
+                "iconv",
+                "homebrew-system-prefix",
+            ),
+            (
+                "system-prefix/usr/local",
+                "iconv",
+                "intel-system-prefix",
+            ),
+            (
+                "normal/NVAT_APPLE_ICONV_LIBRARY",
+                "iconv",
+                "normal-iconv",
+            ),
+            (
+                "normal/NVAT_APPLE_COREFOUNDATION_FRAMEWORK",
+                "corefoundation",
+                "normal-corefoundation",
+            ),
         )
+
+        def write_iconv(directory):
+            directory.mkdir(parents=True, exist_ok=True)
+            path = directory / "libiconv.tbd"
+            path.write_text("poison\n", encoding="utf-8")
+            return path
+
+        def write_corefoundation(directory):
+            directory.mkdir(parents=True, exist_ok=True)
+            path = directory / "CoreFoundation.framework"
+            path.mkdir()
+            return path
+
         for label, dependency, kind in rows:
             with self.subTest(poison=label):
                 temporary = tempfile.TemporaryDirectory()
                 with temporary:
                     root = Path(temporary.name)
-                    poison = root / "poison" / label
-                    iconv_path = (
-                        poison / "usr/lib/libiconv.tbd"
-                        if kind == "find-root"
-                        else poison / "lib/libiconv.tbd"
-                    )
-                    framework_path = (
-                        poison
-                        / "System/Library/Frameworks/CoreFoundation.framework"
-                    )
-                    iconv_path.parent.mkdir(parents=True)
-                    iconv_path.write_text("poison\n", encoding="utf-8")
-                    framework_path.mkdir(parents=True)
+                    modeled = root / "modeled"
+                    fixture_root = root / "fixture"
+                    fixture_sdk = fixture_root / "MacOSX.sdk"
+                    fixture_build = fixture_root / "build"
                     before_call = ""
                     arguments = []
-                    environment = os.environ.copy()
-                    if kind == "prefix":
-                        arguments.append(f"-DCMAKE_PREFIX_PATH={poison}")
-                    elif kind == "library":
-                        arguments.append(f"-DCMAKE_LIBRARY_PATH={iconv_path.parent}")
-                    elif kind == "framework":
-                        arguments.append(
-                            f"-DCMAKE_FRAMEWORK_PATH={framework_path.parent}"
-                        )
-                    elif kind == "find-root":
-                        before_call = (
-                            f'set(CMAKE_FIND_ROOT_PATH "{poison.as_posix()}")\n'
-                        )
+                    environment = sanitized_environment()
+                    outside_result = None
+
+                    if kind == "homebrew-prefix":
+                        prefix = modeled / "opt/homebrew"
+                        write_iconv(prefix / "lib")
+                        arguments.append(f"-DCMAKE_PREFIX_PATH={prefix}")
+                    elif kind == "intel-library":
+                        library = modeled / "usr/local/lib"
+                        write_iconv(library)
+                        arguments.append(f"-DCMAKE_LIBRARY_PATH={library}")
+                    elif kind == "library-framework":
+                        frameworks = modeled / "Library/Frameworks"
+                        write_corefoundation(frameworks)
+                        arguments.append(f"-DCMAKE_FRAMEWORK_PATH={frameworks}")
+                    elif kind == "host-library":
+                        library = modeled / "usr/lib"
+                        write_iconv(library)
+                        arguments.append(f"-DCMAKE_LIBRARY_PATH={library}")
+                    elif kind == "build-prefix":
+                        prefix = fixture_build / "host-prefix"
+                        write_iconv(prefix / "lib")
+                        write_corefoundation(prefix / "Frameworks")
+                        arguments.append(f"-DCMAKE_PREFIX_PATH={prefix}")
                     elif kind == "cache-iconv":
+                        iconv_path = write_iconv(
+                            modeled / "opt/homebrew/lib"
+                        )
                         arguments.append(
                             f"-DNVAT_APPLE_ICONV_LIBRARY={iconv_path}"
                         )
                     elif kind == "cache-corefoundation":
+                        framework_path = write_corefoundation(
+                            modeled / "usr/local/Library/Frameworks"
+                        )
                         arguments.append(
                             "-DNVAT_APPLE_COREFOUNDATION_FRAMEWORK="
                             f"{framework_path}"
                         )
-                    elif kind == "env-library":
-                        environment["LIBRARY_PATH"] = str(iconv_path.parent)
-                    elif kind == "env-ldflags":
-                        environment["LDFLAGS"] = f"-L{iconv_path.parent}"
-                    elif kind == "system-prefix":
+                    elif kind == "prefix":
+                        prefix = modeled / "prefix"
+                        write_iconv(prefix / "lib")
+                        arguments.append(f"-DCMAKE_PREFIX_PATH={prefix}")
+                    elif kind == "library":
+                        library = modeled / "library"
+                        write_iconv(library)
+                        arguments.append(f"-DCMAKE_LIBRARY_PATH={library}")
+                    elif kind == "framework":
+                        frameworks = modeled / "frameworks"
+                        write_corefoundation(frameworks)
+                        arguments.append(
+                            f"-DCMAKE_FRAMEWORK_PATH={frameworks}"
+                        )
+                    elif kind == "find-root":
+                        find_root = modeled / "find-root"
+                        mirrored_sdk = (
+                            find_root
+                            / fixture_sdk.as_posix().lstrip("/")
+                        )
+                        outside_result = write_iconv(
+                            mirrored_sdk / "usr/lib"
+                        )
                         before_call = (
-                            f'set(CMAKE_SYSTEM_PREFIX_PATH "{poison.as_posix()}")\n'
+                            "set(CMAKE_FIND_ROOT_PATH "
+                            f'"{find_root.as_posix()}")\n'
+                        )
+                    elif kind == "env-library":
+                        library = modeled / "usr/local/lib"
+                        write_iconv(library)
+                        environment["LIBRARY_PATH"] = str(library)
+                    elif kind == "env-ldflags":
+                        prefix = modeled / "opt/homebrew"
+                        write_iconv(prefix / "lib")
+                        write_corefoundation(prefix / "Frameworks")
+                        environment["LDFLAGS"] = (
+                            f"-L{prefix / 'lib'} "
+                            f"-F{prefix / 'Frameworks'}"
+                        )
+                    elif kind == "homebrew-system-prefix":
+                        prefix = modeled / "opt/homebrew"
+                        write_iconv(prefix / "lib")
+                        before_call = (
+                            "set(CMAKE_SYSTEM_PREFIX_PATH "
+                            f'"{prefix.as_posix()}")\n'
+                        )
+                    elif kind == "intel-system-prefix":
+                        prefix = modeled / "usr/local"
+                        write_iconv(prefix / "lib")
+                        before_call = (
+                            "set(CMAKE_SYSTEM_PREFIX_PATH "
+                            f'"{prefix.as_posix()}")\n'
+                        )
+                    elif kind == "normal-iconv":
+                        iconv_path = write_iconv(
+                            modeled / "opt/homebrew/lib"
+                        )
+                        before_call = (
+                            "set(NVAT_APPLE_ICONV_LIBRARY "
+                            f'"{iconv_path.as_posix()}")\n'
+                        )
+                    elif kind == "normal-corefoundation":
+                        framework_path = write_corefoundation(
+                            modeled / "usr/local/Library/Frameworks"
+                        )
+                        before_call = (
+                            "set(NVAT_APPLE_COREFOUNDATION_FRAMEWORK "
+                            f'"{framework_path.as_posix()}")\n'
                         )
                     fixture = ReducedAppleFixture(
-                        root / "fixture",
+                        fixture_root,
                         iconv=dependency != "iconv",
                         corefoundation=dependency != "corefoundation",
                         before_call=before_call,
                         environment=environment,
                     )
                     completed = fixture.configure(arguments=arguments)
-                    if dependency == "iconv":
+                    if outside_result is not None:
+                        diagnostic = (
+                            "Darwin/arm64 iconv discovery failed: resolved path "
+                            f"'{outside_result.resolve()}' is outside selected "
+                            f"SDK '{fixture.sdk.resolve()}'; remove host or "
+                            "Homebrew cache inputs and select the macOS SDK, "
+                            "then retry"
+                        )
+                    elif dependency == "iconv":
                         diagnostic = (
                             "Darwin/arm64 iconv discovery failed: libiconv.tbd "
                             f"was not found in selected SDK '{fixture.sdk}/usr/lib'; "
@@ -674,12 +904,28 @@ class AppleLinkClosureTest(unittest.TestCase):
                     self.assert_exact_diagnostic(completed, diagnostic)
 
     def test_policy_rejects_linker_escape_hatches_and_non_sdk_inputs(self):
-        helper = HELPER.read_text(encoding="utf-8")
-        product = helper + SDK_CMAKE.read_text(encoding="utf-8")
-        for token in (
+        product_sources = {
+            HELPER: HELPER.read_text(encoding="utf-8"),
+            SDK_CMAKE: SDK_CMAKE.read_text(encoding="utf-8"),
+            CLI_CMAKE: CLI_CMAKE.read_text(encoding="utf-8"),
+        }
+        product = "\n".join(product_sources.values())
+        forbidden_link_tokens = (
             "-undefined dynamic_lookup",
+            "-undefined;dynamic_lookup",
+            "-undefined suppress",
+            "-undefined;suppress",
             "-flat_namespace",
+            "-Wl,-undefined",
+            "-Xlinker -undefined",
+            "-Xlinker;-undefined",
             "--unresolved-symbols",
+            "--allow-shlib-undefined",
+            "LINKER:-undefined",
+            "SHELL:-undefined",
+        )
+        for token in (
+            *forbidden_link_tokens,
             "file(GLOB",
             "file(GLOB_RECURSE",
             "-L/opt/homebrew",
@@ -689,22 +935,63 @@ class AppleLinkClosureTest(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertNotIn(token, product)
-        self.assertNotRegex(
-            helper,
-            r"(?:file\(COPY|configure_file|cmake\s+-E\s+copy).*"
-            r"(?:iconv|CoreFoundation)",
+        copied_platform_dependency = re.compile(
+            r"(?:file\(COPY|configure_file|install)\s*\([^)]*"
+            r"(?:iconv|CoreFoundation)[^)]*\)|"
+            r"cmake\s+-E\s+copy[^\n]*(?:iconv|CoreFoundation)",
+            re.IGNORECASE | re.DOTALL,
         )
-        self.assertNotIn("-framework CoreFoundation", helper)
+        for path, source in product_sources.items():
+            with self.subTest(copy_surface=path):
+                self.assertNotRegex(source, copied_platform_dependency)
+        self.assertNotIn(
+            "-framework CoreFoundation",
+            product_sources[HELPER],
+        )
         with tempfile.TemporaryDirectory() as directory:
             fixture = ReducedAppleFixture(directory)
             completed = fixture.configure(query_codemodel=True)
             self.assertEqual(completed.returncode, 0, completed.stderr)
             properties = read_properties(fixture.properties)
             _codemodel, targets = load_codemodel(fixture.build)
-            expected = (properties["REGORUS"], properties["ICONV"])
-            nvattest = " ".join(library_fragments(targets["nvattest"]))
-            for value in expected:
-                self.assertNotIn(value, nvattest)
+            links = {
+                name: (
+                    fixture.build / f"CMakeFiles/{name}.dir/link.txt"
+                ).read_text(encoding="utf-8")
+                for name in ("nvat", "nvattest")
+            }
+            generated_surfaces = (
+                *properties.values(),
+                " ".join(all_link_fragments(targets["nvat"])),
+                " ".join(all_link_fragments(targets["nvattest"])),
+                links["nvat"],
+                links["nvattest"],
+            )
+            for token in forbidden_link_tokens:
+                for index, surface in enumerate(generated_surfaces):
+                    with self.subTest(token=token, generated_surface=index):
+                        self.assertNotIn(token, surface)
+
+            expected = (
+                (
+                    properties["REGORUS"],
+                    Path(properties["REGORUS"]).stem,
+                ),
+                (
+                    properties["ICONV"],
+                    Path(properties["ICONV"]).name,
+                ),
+            )
+            nvat = " ".join(
+                (*all_link_fragments(targets["nvat"]), links["nvat"])
+            )
+            nvattest = " ".join(
+                (*all_link_fragments(targets["nvattest"]), links["nvattest"])
+            )
+            for exact, generated_marker in expected:
+                self.assertIn(generated_marker, nvat)
+                self.assertNotIn(exact, nvattest)
+                self.assertNotIn(generated_marker, nvattest)
 
     def cmake_311(self):
         override = os.environ.get("NVAT_TEST_CMAKE_311")
@@ -845,8 +1132,7 @@ class AppleLinkClosureTest(unittest.TestCase):
     def test_use_system_nvat_cli_has_no_direct_platform_edges(self):
         temporary, prefix = self.install_fixture()
         with temporary:
-            state = {}
-            base_prepare = installed_header_fixture_prepare(state)
+            base_prepare = installed_header_fixture_prepare()
 
             def prepare(fixture_root):
                 arguments, project_include = base_prepare(fixture_root)
@@ -878,12 +1164,29 @@ class AppleLinkClosureTest(unittest.TestCase):
             with configured_temporary:
                 self.assertEqual(completed.returncode, 0, completed.stderr)
                 _codemodel, targets = load_codemodel(build)
-                fragments = " ".join(library_fragments(targets["nvattest"]))
-                self.assertIn(str(prefix / "lib/libnvat.so"), fragments)
-                self.assertNotIn("CoreFoundation", fragments)
-                self.assertNotIn("Iconv", fragments)
+                expected_library = str(prefix / "lib/libnvat.so")
+                expected_rpath = f"-Wl,-rpath,{prefix / 'lib'}:"
+                fragments = library_fragments(targets["nvattest"])
+                self.assertEqual(fragments, [expected_rpath, expected_library])
+                self.assertEqual(
+                    normalized_library_fragments(targets["nvattest"]),
+                    [expected_rpath, "libnvat.so"],
+                )
                 link = (build / "CMakeFiles/nvattest.dir/link.txt").read_text(
                     encoding="utf-8"
+                )
+                generated_library_fragments = [
+                    token
+                    for token in shlex.split(link)
+                    if token.startswith(("-l", "-Wl,-rpath,"))
+                    or re.search(
+                        r"\.(?:a|dylib|tbd|so(?:\.[0-9.]+)?)$",
+                        token,
+                    )
+                ]
+                self.assertEqual(
+                    generated_library_fragments,
+                    [expected_rpath, expected_library],
                 )
                 self.assertNotIn("CoreFoundation", link)
                 self.assertNotIn("Iconv", link)
