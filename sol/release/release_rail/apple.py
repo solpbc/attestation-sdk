@@ -14,6 +14,12 @@ SDK_NAME = "macosx"
 
 _VERSION = re.compile(r"^[0-9]+(?:\.[0-9]+){1,3}$")
 _BUILD = re.compile(r"^[A-Za-z0-9.]+$")
+_APPLE_CLANG_OBSERVATION = re.compile(
+    r"^Apple clang version ([0-9]+\.[0-9]+\.[0-9]+)(?: \([^()\s]+\))?$"
+)
+_APPLE_CLANG_CMAKE_VERSION = re.compile(
+    r"^([0-9]+\.[0-9]+\.[0-9]+)(?:\.[0-9]+)?$"
+)
 _OUTER_KEYS = (
     "apple_clang",
     "xcode",
@@ -64,13 +70,19 @@ def _command(arguments: tuple[str, ...], runner: Runner) -> str:
 
 def _compiler(output: str) -> dict[str, str]:
     first = output.splitlines()[0].strip()
-    match = re.search(r"\bApple clang version ([0-9]+(?:\.[0-9]+){1,3})\b", first)
+    match = _APPLE_CLANG_OBSERVATION.fullmatch(first)
     if match is None:
         raise AppleToolchainError(
             "Apple toolchain evidence failed: compiler is not normalized AppleClang: "
             f"{first!r}; select the Xcode AppleClang toolchain, then retry"
         )
     return {"name": APPLE_CLANG_NAME, "version": match.group(1)}
+
+
+def _compiler_observation(
+    compiler_command: str, runner: Runner
+) -> dict[str, str]:
+    return _compiler(_command((compiler_command, "--version"), runner))
 
 
 def _xcode(output: str) -> dict[str, str]:
@@ -111,10 +123,13 @@ def _target_values(target: dict[str, Any]) -> tuple[str, str]:
 
 
 def _observed(
-    compiler_command: str, target: dict[str, Any], runner: Runner
+    compiler: dict[str, str],
+    target: dict[str, Any],
+    runner: Runner,
+    *,
+    architecture: str,
+    floor: str,
 ) -> dict[str, Any]:
-    architecture, floor = _target_values(target)
-    compiler = _compiler(_command((compiler_command, "--version"), runner))
     xcode = _xcode(_command(("xcodebuild", "-version"), runner))
     sdk_path = _command(("xcrun", "--sdk", SDK_NAME, "--show-sdk-path"), runner)
     sdk_version = _command(
@@ -146,7 +161,15 @@ def _observed(
 def preflight(
     target: dict[str, Any], runner: Runner = subprocess.run
 ) -> dict[str, Any]:
-    return _observed(target["required_tools"][0], target, runner)
+    architecture, floor = _target_values(target)
+    compiler = _compiler_observation(target["required_tools"][0], runner)
+    return _observed(
+        compiler,
+        target,
+        runner,
+        architecture=architecture,
+        floor=floor,
+    )
 
 
 def _cache(build_dir: Path) -> dict[str, str]:
@@ -184,20 +207,26 @@ def _cache(build_dir: Path) -> dict[str, str]:
     return values
 
 
-def _compiler_metadata(build_dir: Path) -> tuple[str, str]:
+def _compiler_metadata(
+    build_dir: Path, compiler_command: str
+) -> tuple[str, str]:
     paths = sorted((build_dir / "CMakeFiles").glob("*/CMakeCXXCompiler.cmake"))
     if len(paths) != 1:
         raise AppleToolchainError(
-            "Apple toolchain evidence failed: cannot read one configured C++ "
-            f"compiler record under {build_dir / 'CMakeFiles'}; remove the build "
-            "directory and rerun the native configure"
+            "Apple toolchain evidence failed: configured compiler "
+            f"{compiler_command!r}; public observation not attempted; CMake ID/version "
+            "record is missing or ambiguous: cannot read one configured C++ compiler "
+            f"record under {build_dir / 'CMakeFiles'}; remove the build directory and "
+            "rerun the native configure"
         )
     try:
         text = paths[0].read_text(encoding="utf-8", errors="replace")
     except OSError as error:
         raise AppleToolchainError(
-            f"Apple toolchain evidence failed: cannot read {paths[0]}: {error}; "
-            "remove the build directory and rerun the native configure"
+            "Apple toolchain evidence failed: configured compiler "
+            f"{compiler_command!r}; public observation not attempted; CMake ID/version "
+            f"record is unreadable: cannot read {paths[0]}: {error}; remove the build "
+            "directory and rerun the native configure"
         ) from error
 
     def field(name: str) -> str:
@@ -206,9 +235,11 @@ def _compiler_metadata(build_dir: Path) -> tuple[str, str]:
         )
         if len(matches) != 1 or not matches[0]:
             raise AppleToolchainError(
-                "Apple toolchain evidence failed: configured C++ compiler record "
-                f"has invalid {name}; remove the build directory and rerun the "
-                "native configure"
+                "Apple toolchain evidence failed: configured compiler "
+                f"{compiler_command!r}; public observation not attempted; CMake "
+                "ID/version record is malformed: configured C++ compiler record has "
+                f"invalid {name}; remove the build directory and rerun the native "
+                "configure"
             )
         return matches[0]
 
@@ -221,17 +252,44 @@ def resolve(
     runner: Runner = subprocess.run,
 ) -> dict[str, Any]:
     values = _cache(build_dir)
-    evidence = _observed(values["CMAKE_CXX_COMPILER"], target, runner)
-    compiler_id, compiler_version = _compiler_metadata(build_dir)
-    if compiler_id != "AppleClang" or (
-        compiler_version != evidence["apple_clang"]["version"]
+    compiler_command = values["CMAKE_CXX_COMPILER"]
+    architecture, floor = _target_values(target)
+    compiler_id, compiler_version = _compiler_metadata(
+        build_dir, compiler_command
+    )
+    try:
+        compiler = _compiler_observation(compiler_command, runner)
+    except AppleToolchainError as error:
+        detail = str(error).removeprefix("Apple toolchain evidence failed: ")
+        raise AppleToolchainError(
+            "Apple toolchain evidence failed: configured compiler "
+            f"{compiler_command!r}; CMake ID/version record is {compiler_id!r} "
+            f"{compiler_version!r}; public observation {detail}"
+        ) from error
+    if (
+        (
+            compiler_match := _APPLE_CLANG_CMAKE_VERSION.fullmatch(
+                compiler_version
+            )
+        )
+        is None
+        or compiler_id != "AppleClang"
+        or compiler_match.group(1) != compiler["version"]
     ):
         raise AppleToolchainError(
-            "Apple toolchain evidence failed: compiler observation "
-            f"{evidence['apple_clang']['version']} differs from CMake "
-            f"{compiler_id} {compiler_version}; select one Xcode toolchain, remove "
-            "build/release, and retry"
+            "Apple toolchain evidence failed: configured compiler "
+            f"{compiler_command!r}; compiler observation is {compiler['name']!r} "
+            f"{compiler['version']!r}; CMake ID/version record is {compiler_id!r} "
+            f"{compiler_version!r}; records do not identify the same normalized "
+            "AppleClang; select one Xcode toolchain, remove build/release, and retry"
         )
+    evidence = _observed(
+        compiler,
+        target,
+        runner,
+        architecture=architecture,
+        floor=floor,
+    )
     configured_sdk = Path(values["CMAKE_OSX_SYSROOT"])
     observed_sdk = Path(evidence["sdk"]["path"])
     if (
