@@ -206,6 +206,11 @@ lode:** generated target properties or a native link on macOS.
 
 ## P2 — Discriminating directory cases
 
+> **Superseded by design D1.** The two-value recognizer proposed below was
+> narrowed before implementation. The shipped helper recognizes only
+> `/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib`; it does not
+> recognize `${NVAT_APPLE_SDKROOT}/usr/lib`.
+
 The safe rule is exact allowlisting followed by all-or-nothing clearing. Read
 the imported static owner's raw `INTERFACE_LINK_DIRECTORIES`; validate every
 list element without normalizing malformed or unknown input into a known
