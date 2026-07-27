@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.11)
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/nvat_apple_sdk.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/nvat_header_consumer_boundary.cmake")
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
   get_property(_NVAT_APPLE_TOOLCHAIN_RESOLVED GLOBAL
     PROPERTY NVAT_APPLE_TOOLCHAIN_RESOLVED)
@@ -441,13 +442,13 @@ target_include_directories(nvat
   PUBLIC
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
-  PRIVATE
+)
+nvat_target_include_pinned_logging_headers(
+  nvat
+  ORDINARY
     src
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     ${regorus_SOURCE_DIR}/bindings/ffi
-    # spdlog and fmt include dirs (linked statically via TARGET_FILE below)
-    ${spdlog_SOURCE_DIR}/include
-    ${fmt_SOURCE_DIR}/include
 )
 
 if (SANITIZER)

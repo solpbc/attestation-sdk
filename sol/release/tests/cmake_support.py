@@ -1,13 +1,59 @@
 import json
+import re
 import shlex
 import subprocess
 import tempfile
 from pathlib import Path
 
 
+ROOT = Path(__file__).resolve().parents[3]
+HEADER_BOUNDARY_CMAKE = (
+    ROOT / "nv-attestation-sdk-cpp/cmake/nvat_header_consumer_boundary.cmake"
+)
+
+
 def write_stub(path, content):
     path.mkdir(parents=True, exist_ok=True)
     (path / "CMakeLists.txt").write_text(content, encoding="utf-8")
+
+
+def pinned_header_boundary_records():
+    source = HEADER_BOUNDARY_CMAKE.read_text(encoding="utf-8")
+    match = re.search(
+        r"# NVAT_PINNED_HEADER_BOUNDARIES_BEGIN\n"
+        r"(.*?)"
+        r"# NVAT_PINNED_HEADER_BOUNDARIES_END",
+        source,
+        re.DOTALL,
+    )
+    if match is None:
+        return []
+    return [
+        tuple(value.split("|"))
+        for value in re.findall(r'^\s*"([^"]+)"$', match.group(1), re.MULTILINE)
+    ]
+
+
+def populate_pinned_header_tree(roots):
+    for root_variable, _pin, relative_header, identity in (
+        pinned_header_boundary_records()
+    ):
+        header = roots[root_variable] / "include" / relative_header
+        header.parent.mkdir(parents=True, exist_ok=True)
+        with header.open("a", encoding="utf-8") as stream:
+            stream.write(identity + "\n")
+
+
+def write_interface_stub(path, target, alias):
+    write_stub(
+        path,
+        "cmake_minimum_required(VERSION 3.11)\n"
+        f"add_library({target} INTERFACE)\n"
+        f"add_library({alias} ALIAS {target})\n"
+        f'target_include_directories({target} INTERFACE '
+        '"${CMAKE_CURRENT_SOURCE_DIR}/include")\n',
+    )
+    (path / "include").mkdir()
 
 
 def warning_fixture_prepare(state, missing_targets=()):
@@ -34,18 +80,16 @@ def warning_fixture_prepare(state, missing_targets=()):
         write_stub(jwt, "cmake_minimum_required(VERSION 3.11)\n")
         (jwt / "include").mkdir()
         json_stub = root / "json"
-        write_stub(
+        write_interface_stub(
             json_stub,
-            "cmake_minimum_required(VERSION 3.11)\n"
-            "add_library(nlohmann_json INTERFACE)\n"
-            "add_library(nlohmann_json::nlohmann_json ALIAS nlohmann_json)\n",
+            "nlohmann_json",
+            "nlohmann_json::nlohmann_json",
         )
         cli11 = root / "cli11"
-        write_stub(
+        write_interface_stub(
             cli11,
-            "cmake_minimum_required(VERSION 3.11)\n"
-            "add_library(CLI11 INTERFACE)\n"
-            "add_library(CLI11::CLI11 ALIAS CLI11)\n",
+            "CLI11",
+            "CLI11::CLI11",
         )
         compiled = {}
         for target in ("fmt", "spdlog"):
@@ -65,8 +109,18 @@ def warning_fixture_prepare(state, missing_targets=()):
             )
             (stub / "include").mkdir()
             compiled[target] = stub.resolve()
+        populate_pinned_header_tree(
+            {
+                "fmt_SOURCE_DIR": compiled["fmt"],
+                "spdlog_SOURCE_DIR": compiled["spdlog"],
+            }
+        )
         state["third_party_roots"] = tuple(compiled.values())
         state["root"] = root
+        state["fmt"] = compiled["fmt"]
+        state["spdlog"] = compiled["spdlog"]
+        state["cli11"] = (cli11 / "include").resolve()
+        state["json"] = (json_stub / "include").resolve()
         arguments = [
             "-DUSE_SYSTEM_NVAT=OFF",
             "-DUSE_SYSTEM_DEPS=OFF",
@@ -81,6 +135,60 @@ def warning_fixture_prepare(state, missing_targets=()):
             f"-DFETCHCONTENT_SOURCE_DIR_CLI11={cli11}",
         ]
         return arguments, ""
+
+    return prepare
+
+
+def installed_header_fixture_prepare(state):
+    def prepare(root):
+        cli11 = root / "cli11"
+        write_interface_stub(cli11, "CLI11", "CLI11::CLI11")
+        json_stub = root / "json"
+        write_interface_stub(
+            json_stub,
+            "nlohmann_json",
+            "nlohmann_json::nlohmann_json",
+        )
+
+        fmt = root / "fmt"
+        spdlog = root / "spdlog"
+        write_stub(fmt, "cmake_minimum_required(VERSION 3.11)\n")
+        write_stub(spdlog, "cmake_minimum_required(VERSION 3.11)\n")
+        populate_pinned_header_tree(
+            {
+                "fmt_SOURCE_DIR": fmt,
+                "spdlog_SOURCE_DIR": spdlog,
+            }
+        )
+
+        installed = root / "installed"
+        include = installed / "include"
+        include.mkdir(parents=True)
+        (include / "nvat.h").write_text("#pragma once\n", encoding="utf-8")
+        library = installed / "libnvat.so"
+        library.touch()
+
+        state.update(
+            {
+                "root": root,
+                "fmt": fmt.resolve(),
+                "spdlog": spdlog.resolve(),
+                "cli11": (cli11 / "include").resolve(),
+                "json": (json_stub / "include").resolve(),
+                "nvat_include": include.resolve(),
+            }
+        )
+        return [
+            "-DUSE_SYSTEM_NVAT=ON",
+            "-DBUILD_SHARED_LIBS=ON",
+            "-DCMAKE_BUILD_TYPE=Release",
+            f"-DNVAT_INCLUDE_DIR={include}",
+            f"-DNVAT_LIBRARY={library}",
+            f"-DFETCHCONTENT_SOURCE_DIR_CLI11={cli11}",
+            f"-DFETCHCONTENT_SOURCE_DIR_JSON={json_stub}",
+            f"-DFETCHCONTENT_SOURCE_DIR_FMT={fmt}",
+            f"-DFETCHCONTENT_SOURCE_DIR_SPDLOG={spdlog}",
+        ], ""
 
     return prepare
 

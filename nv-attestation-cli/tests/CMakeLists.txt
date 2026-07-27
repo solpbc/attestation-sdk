@@ -3,6 +3,7 @@ project(nv-attestation-cli-tests)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../nv-attestation-sdk-cpp/cmake")
 include(nvat_fetch_gtest)
+include(nvat_header_consumer_boundary)
 
 option(SANITIZER "Select a sanitizer" OFF)
 
@@ -65,10 +66,9 @@ target_link_libraries(nv-attestation-cli-tests PRIVATE
     CLI11::CLI11
 )
 
-# spdlog/fmt headers needed for compilation (nvat has them statically linked, no need to link again)
-target_include_directories(nv-attestation-cli-tests PRIVATE
-    ${spdlog_SOURCE_DIR}/include
-    ${fmt_SOURCE_DIR}/include
+nvat_target_include_pinned_logging_headers(
+    nv-attestation-cli-tests
+    ORDINARY
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
 )
 

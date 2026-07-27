@@ -17,7 +17,12 @@ ROOT = RELEASE_DIR.parents[1]
 sys.path.insert(0, str(RELEASE_DIR))
 
 import rail  # noqa: E402
-from cmake_support import production_configure, warning_fixture_prepare  # noqa: E402
+from cmake_support import (  # noqa: E402
+    installed_header_fixture_prepare,
+    pinned_header_boundary_records,
+    production_configure,
+    warning_fixture_prepare,
+)
 from release_rail import (  # noqa: E402
     apple,
     archive,
@@ -709,11 +714,56 @@ class DriverRuntimeTest(unittest.TestCase):
                     marker()
                 raise error
 
-            side_effect = (
-                fail_at_spdlog_compile
-                if str(error) == "spdlog compile failed"
-                else error
-            )
+            def fail_at_pinned_header_boundary(*_args, **_kwargs):
+                with tempfile.TemporaryDirectory() as directory:
+                    fixture = Path(directory)
+                    state = {}
+                    arguments, _project_include = installed_header_fixture_prepare(
+                        state
+                    )(fixture)
+                    root_variable, _pin, relative_header, identity = (
+                        pinned_header_boundary_records()[0]
+                    )
+                    source_root = (
+                        state["fmt"]
+                        if root_variable == "fmt_SOURCE_DIR"
+                        else state["spdlog"]
+                    )
+                    header = source_root / "include" / relative_header
+                    header.write_text(
+                        header.read_text(encoding="utf-8").replace(
+                            identity, "BROKEN_PINNED_HEADER_IDENTITY", 1
+                        ),
+                        encoding="utf-8",
+                    )
+                    try:
+                        driver._run(
+                            [
+                                "cmake",
+                                "-S",
+                                str(ROOT / "nv-attestation-cli"),
+                                "-B",
+                                str(fixture / "build"),
+                                "-DBUILD_TESTING=OFF",
+                                *arguments,
+                            ],
+                            cwd=fixture,
+                            text=True,
+                            capture_output=True,
+                        )
+                    except driver.ReleaseError as configure_error:
+                        output = configure_error.__cause__.stderr
+                        self.assertIn("pinned-header boundary failed", output)
+                        marker()
+                        raise
+                    self.fail("invalid pinned header boundary configured successfully")
+
+            if str(error) == "spdlog compile failed":
+                side_effect = fail_at_spdlog_compile
+            elif str(error) == "command failed":
+                side_effect = fail_at_pinned_header_boundary
+            else:
+                side_effect = error
             build = stack.enter_context(
                 mock.patch.object(driver, "_build", side_effect=side_effect)
             )
@@ -722,6 +772,16 @@ class DriverRuntimeTest(unittest.TestCase):
         self.assert_release_failure_preserves_quartet(
             target,
             driver.ReleaseError("spdlog compile failed"),
+            patches,
+            expected_call="build",
+            observation=lambda retained, calls: self.assertEqual(
+                calls["marker"].called, not retained
+            ),
+        )
+
+        self.assert_release_failure_preserves_quartet(
+            target,
+            driver.ReleaseError("command failed"),
             patches,
             expected_call="build",
             observation=lambda retained, calls: self.assertEqual(

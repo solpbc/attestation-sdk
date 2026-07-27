@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.11)
 include("${CMAKE_CURRENT_LIST_DIR}/../nv-attestation-sdk-cpp/cmake/nvat_apple_sdk.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../nv-attestation-sdk-cpp/cmake/nvat_header_consumer_boundary.cmake")
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
     nvat_resolve_apple_toolchain()
 endif()
@@ -56,6 +57,7 @@ if(USE_SYSTEM_NVAT)
     list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../nv-attestation-sdk-cpp/cmake")
     include(nvat_locate_installed)
     nvat_locate_installed()
+    set_property(TARGET nvattest PROPERTY NO_SYSTEM_FROM_IMPORTED ON)
 
     # CLI tests (when built as a subdirectory) use NVAT_SDK_INCLUDE_DIR for nvat.h.
     set(NVAT_SDK_INCLUDE_DIR "${NVAT_INCLUDE_DIR}")
@@ -117,12 +119,11 @@ if(APPLE)
     )
 endif()
 
-# spdlog/fmt headers needed for compilation (nvat has them statically linked, no need to link again)
-target_include_directories(nvattest PRIVATE
+nvat_target_include_pinned_logging_headers(
+    nvattest
+    ORDINARY
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}
-    ${spdlog_SOURCE_DIR}/include
-    ${fmt_SOURCE_DIR}/include
 )
 
 if(BUILD_TESTING)
