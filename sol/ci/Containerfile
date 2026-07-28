@@ -8,5 +8,8 @@ RUN dnf install -y \
     zlib-devel xz git patch perl-core \
   && dnf clean all
 
-RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.88.0
-ENV PATH="/root/.cargo/bin:${PATH}"
+ENV RUSTUP_HOME="/usr/local/rustup"
+RUN export CARGO_HOME="/usr/local/cargo" \
+  && curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.88.0 \
+  && chmod -R a+rX "$CARGO_HOME" "$RUSTUP_HOME"
+ENV PATH="/usr/local/cargo/bin:${PATH}"

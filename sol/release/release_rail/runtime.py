@@ -22,6 +22,8 @@ PODMAN_PRODUCT = "Podman Engine"
 DOCKER_PRODUCT = "Docker Engine"
 MOUNT_RW_SUFFIX = "Z"
 MOUNT_RO_SUFFIX = "ro,Z"
+CI_HOME = "/src/build/.ci-home"
+CI_CARGO_HOME = f"{CI_HOME}/.cargo"
 
 PODMAN_VERSION = (PODMAN, "version")
 PODMAN_VERSION_FIELDS = (
@@ -338,3 +340,29 @@ def render_mount(source: Path | str, destination: Path | str, readonly: bool) ->
         raise RuntimeSelectionError("container bind mount paths must be absolute")
     suffix = MOUNT_RO_SUFFIX if readonly else MOUNT_RW_SUFFIX
     return f"{source_path}:{destination_path}:{suffix}"
+
+
+def run_args(
+    runtime_name: str,
+    *,
+    getuid: Callable[[], int] | None = None,
+    getgid: Callable[[], int] | None = None,
+) -> tuple[str, ...]:
+    if runtime_name == PODMAN:
+        return ()
+    if runtime_name != DOCKER:
+        supported = ", ".join(RUNTIME_NAMES)
+        raise RuntimeSelectionError(
+            f"unsupported runtime {runtime_name!r} for run-args; "
+            f"supported runtimes: {supported}"
+        )
+    getuid = os.getuid if getuid is None else getuid
+    getgid = os.getgid if getgid is None else getgid
+    return (
+        "--user",
+        f"{getuid()}:{getgid()}",
+        "-e",
+        f"HOME={CI_HOME}",
+        "-e",
+        f"CARGO_HOME={CI_CARGO_HOME}",
+    )
