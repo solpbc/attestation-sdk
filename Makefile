@@ -46,9 +46,11 @@ ci-container: image
 	./sol/check-curl-handle-sites.sh
 	RUNTIME="$$( $(RAIL) runtime select )" && \
 		IMAGE="$$( $(RAIL) runtime image-tag )" && \
-		"$$RUNTIME" run --rm -v $(CURDIR):/src:Z \
+		RUN_ARGS="$$( $(RAIL) runtime run-args "$$RUNTIME" )" && \
+		"$$RUNTIME" run --rm $$RUN_ARGS -v $(CURDIR):/src:Z \
 			-v $(GIT_COMMON_DIR):$(GIT_COMMON_DIR):ro,Z -w /src "$$IMAGE" bash -ec '\
 		  rm -rf build && \
+		  mkdir -p build/.ci-home && \
 		  cmake -S $(CLI_DIR) -B build -DUSE_SYSTEM_NVAT=OFF -DUSE_SYSTEM_DEPS=OFF -DBUILD_TESTING=ON -DBUILD_SHARED_LIBS=ON && \
 		  cmake --build build -j$$(nproc) && \
 		  NVAT_C_SDK_TEST_SERVICE_KEY=$(TEST_SERVICE_KEY) ctest --test-dir build --output-on-failure -L unit -E "$(NETWORK_TESTS)"'

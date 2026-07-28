@@ -57,6 +57,8 @@ def _parser() -> argparse.ArgumentParser:
     runtime_actions = runtime_parser.add_subparsers(dest="action", required=True)
     runtime_actions.add_parser("select")
     runtime_actions.add_parser("image-tag")
+    run_args = runtime_actions.add_parser("run-args")
+    run_args.add_argument("runtime_name")
     gate_parser = commands.add_parser("gate")
     gate_parser.add_argument("target", choices=authority.TARGET_IDS)
     gate_parser.add_argument("files", nargs="+", type=Path)
@@ -77,8 +79,13 @@ def main() -> int:
         if arguments.command == "runtime":
             if arguments.action == "select":
                 print(runtime.select().name)
-            else:
+            elif arguments.action == "image-tag":
                 print(runtime.LOCAL_IMAGE_TAG)
+            elif arguments.action == "run-args":
+                for value in runtime.run_args(arguments.runtime_name):
+                    print(value)
+            else:
+                raise AssertionError(arguments.action)
             return 0
         if arguments.command == "gate":
             data = authority.load()
