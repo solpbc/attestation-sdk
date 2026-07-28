@@ -184,7 +184,10 @@ key or engine names.
 **Decision.** Extend `rail.py` with a `runtime` command group:
 
 * `runtime select` prints exactly `podman` or `docker` plus one newline;
-* `runtime image-tag` prints exactly the shared bare tag plus one newline.
+* `runtime image-tag` prints exactly the shared bare tag plus one newline;
+* `runtime run-args <runtime>` emits zero or more whitespace-free container
+  argv tokens, one per line, for the already-selected runtime. Known Podman
+  emits nothing; an unknown runtime fails through the normal rail error path.
 
 `runtime select` performs the same identity, info, endpoint, and native
 architecture checks as package selection, but not the D4 container-write

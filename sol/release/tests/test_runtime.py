@@ -2,6 +2,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 RELEASE_DIR = Path(__file__).resolve().parents[1]
@@ -195,6 +196,108 @@ class RuntimeTest(unittest.TestCase):
                 self.assertNotIn("\t", format_body)
                 self.assertEqual(
                     format_body.count(runtime.FIELD_SEPARATOR), field_count - 1
+                )
+
+    def test_run_args_are_distinct_for_docker_and_podman(self):
+        self.assertEqual(
+            runtime.run_args(
+                runtime.DOCKER, getuid=lambda: 1234, getgid=lambda: 5678
+            ),
+            (
+                "--user",
+                "1234:5678",
+                "-e",
+                f"HOME={runtime.CI_HOME}",
+                "-e",
+                f"CARGO_HOME={runtime.CI_CARGO_HOME}",
+            ),
+        )
+        self.assertEqual(
+            runtime.run_args(
+                runtime.PODMAN, getuid=lambda: 1234, getgid=lambda: 5678
+            ),
+            (),
+        )
+
+    def test_podman_run_args_contain_no_user_or_home_environment(self):
+        arguments = runtime.run_args(
+            runtime.PODMAN, getuid=lambda: 1234, getgid=lambda: 5678
+        )
+        self.assertNotIn("--user", arguments)
+        self.assertFalse(
+            any(
+                "HOME=" in argument or "CARGO_HOME=" in argument
+                for argument in arguments
+            )
+        )
+
+    def test_run_args_reject_unknown_runtime(self):
+        with self.assertRaisesRegex(
+            runtime.RuntimeSelectionError,
+            rf"nerdctl.*{runtime.PODMAN}, {runtime.DOCKER}",
+        ):
+            runtime.run_args("nerdctl", getuid=lambda: 1234, getgid=lambda: 5678)
+
+    def test_run_args_cli_rejects_unknown_runtime(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(RELEASE_DIR / "rail.py"),
+                "runtime",
+                "run-args",
+                "nerdctl",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("release rail error:", result.stderr)
+        self.assertIn("nerdctl", result.stderr)
+        self.assertIn(runtime.PODMAN, result.stderr)
+        self.assertIn(runtime.DOCKER, result.stderr)
+
+    def test_run_args_do_not_select_or_spawn_for_either_runtime(self):
+        forbidden_uid = mock.Mock(side_effect=AssertionError("uid provider called"))
+        forbidden_gid = mock.Mock(side_effect=AssertionError("gid provider called"))
+        with mock.patch.object(
+            runtime, "select", side_effect=AssertionError("runtime selected")
+        ), mock.patch.object(
+            runtime.subprocess, "run", side_effect=AssertionError("process spawned")
+        ):
+            docker = runtime.run_args(
+                runtime.DOCKER, getuid=lambda: 1234, getgid=lambda: 5678
+            )
+            podman = runtime.run_args(
+                runtime.PODMAN, getuid=forbidden_uid, getgid=forbidden_gid
+            )
+        self.assertEqual(docker[1], "1234:5678")
+        self.assertEqual(podman, ())
+        forbidden_uid.assert_not_called()
+        forbidden_gid.assert_not_called()
+
+    def test_run_args_use_injected_uid_and_gid(self):
+        getuid = mock.Mock(return_value=2468)
+        getgid = mock.Mock(return_value=1357)
+        arguments = runtime.run_args(runtime.DOCKER, getuid=getuid, getgid=getgid)
+        self.assertEqual(arguments[1], "2468:1357")
+        getuid.assert_called_once_with()
+        getgid.assert_called_once_with()
+
+    def test_run_arg_tokens_are_whitespace_free(self):
+        arguments = (
+            runtime.run_args(
+                runtime.DOCKER, getuid=lambda: 1234, getgid=lambda: 5678
+            ),
+            runtime.run_args(
+                runtime.PODMAN, getuid=lambda: 1234, getgid=lambda: 5678
+            ),
+        )
+        for runtime_arguments in arguments:
+            for argument in runtime_arguments:
+                self.assertFalse(
+                    any(character.isspace() for character in argument), argument
                 )
 
     def test_mount_rendering_and_validation(self):
