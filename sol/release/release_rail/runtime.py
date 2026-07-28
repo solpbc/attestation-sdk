@@ -15,6 +15,7 @@ from typing import Any, Callable
 PODMAN = "podman"
 DOCKER = "docker"
 RUNTIME_NAMES = (PODMAN, DOCKER)
+FIELD_SEPARATOR = "|"
 LOCAL_IMAGE_TAG = "attestation-sdk-ci"
 EVIDENCE_KEY = "container_runtime"
 PODMAN_PRODUCT = "Podman Engine"
@@ -27,27 +28,50 @@ PODMAN_VERSION_FIELDS = (
     PODMAN,
     "version",
     "--format",
-    "{{.Client.Version}}\t{{.Client.APIVersion}}\t{{.Client.Os}}\t{{.Client.OsArch}}",
+    FIELD_SEPARATOR.join(
+        (
+            "{{.Client.Version}}",
+            "{{.Client.APIVersion}}",
+            "{{.Client.Os}}",
+            "{{.Client.OsArch}}",
+        )
+    ),
 )
 PODMAN_INFO = (
     PODMAN,
     "info",
     "--format",
-    "{{.Version.Version}}\t{{.Host.OS}}\t{{.Host.Arch}}\t{{.Host.Security.Rootless}}",
+    FIELD_SEPARATOR.join(
+        (
+            "{{.Version.Version}}",
+            "{{.Host.OS}}",
+            "{{.Host.Arch}}",
+            "{{.Host.Security.Rootless}}",
+        )
+    ),
 )
 DOCKER_VERSION = (
     DOCKER,
     "version",
     "--format",
-    "{{.Client.Platform.Name}}\t{{.Client.Version}}\t"
-    "{{.Server.Platform.Name}}\t{{.Server.Version}}\t{{.Server.Os}}\t"
-    "{{.Server.Arch}}",
+    FIELD_SEPARATOR.join(
+        (
+            "{{.Client.Platform.Name}}",
+            "{{.Client.Version}}",
+            "{{.Server.Platform.Name}}",
+            "{{.Server.Version}}",
+            "{{.Server.Os}}",
+            "{{.Server.Arch}}",
+        )
+    ),
 )
 DOCKER_INFO = (
     DOCKER,
     "info",
     "--format",
-    "{{.ServerVersion}}\t{{.OSType}}\t{{.Architecture}}",
+    FIELD_SEPARATOR.join(
+        ("{{.ServerVersion}}", "{{.OSType}}", "{{.Architecture}}")
+    ),
 )
 DOCKER_ENDPOINT = (
     DOCKER,
@@ -98,7 +122,7 @@ def _command(
 
 
 def _fields(output: str, count: int, command: str) -> list[str]:
-    values = output.split("\t")
+    values = output.split(FIELD_SEPARATOR)
     if len(values) != count or any(not value.strip() for value in values):
         raise RuntimeSelectionError(f"malformed response from {command}")
     return [value.strip() for value in values]
