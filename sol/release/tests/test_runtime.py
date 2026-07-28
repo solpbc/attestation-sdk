@@ -14,6 +14,9 @@ class RuntimeTest(unittest.TestCase):
     def result(self, stdout="", returncode=0, stderr=""):
         return subprocess.CompletedProcess([], returncode, stdout, stderr)
 
+    def fields(self, *values):
+        return runtime.FIELD_SEPARATOR.join(values) + "\n"
+
     def outputs(self):
         return {
             runtime.PODMAN_VERSION: self.result(
@@ -23,14 +26,24 @@ class RuntimeTest(unittest.TestCase):
                 "OS/Arch:      linux/amd64\n"
             ),
             runtime.PODMAN_VERSION_FIELDS: self.result(
-                "5.8.3\t5.8.3\tlinux\tlinux/amd64\n"
+                self.fields("5.8.3", "5.8.3", "linux", "linux/amd64")
             ),
-            runtime.PODMAN_INFO: self.result("5.8.3\tlinux\tamd64\ttrue\n"),
+            runtime.PODMAN_INFO: self.result(
+                self.fields("5.8.3", "linux", "amd64", "true")
+            ),
             runtime.DOCKER_VERSION: self.result(
-                "Docker CLI\t28.5.1\tDocker Desktop 4.50.0 (build)\t"
-                "28.5.1\tlinux\tamd64\n"
+                self.fields(
+                    "Docker CLI",
+                    "28.5.1",
+                    "Docker Desktop 4.50.0 (build)",
+                    "28.5.1",
+                    "linux",
+                    "amd64",
+                )
             ),
-            runtime.DOCKER_INFO: self.result("28.5.1\tlinux\tamd64\n"),
+            runtime.DOCKER_INFO: self.result(
+                self.fields("28.5.1", "linux", "amd64")
+            ),
             runtime.DOCKER_ENDPOINT: self.result("unix:///var/run/docker.sock\n"),
         }
 
@@ -154,9 +167,11 @@ class RuntimeTest(unittest.TestCase):
 
         outputs = self.outputs()
         outputs[runtime.PODMAN_VERSION_FIELDS] = self.result(
-            "5.8.3\t5.8.3\tlinux\tlinux/arm64\n"
+            self.fields("5.8.3", "5.8.3", "linux", "linux/arm64")
         )
-        outputs[runtime.PODMAN_INFO] = self.result("5.8.3\tlinux\tarm64\ttrue\n")
+        outputs[runtime.PODMAN_INFO] = self.result(
+            self.fields("5.8.3", "linux", "arm64", "true")
+        )
         with self.assertRaisesRegex(
             runtime.RuntimeSelectionError, "engine architecture.*incompatible"
         ):
@@ -165,6 +180,22 @@ class RuntimeTest(unittest.TestCase):
                 which=lambda name: "/runtime" if name == runtime.PODMAN else None,
                 runner=self.runner(outputs),
             )
+
+    def test_format_strings_never_contain_tabs_and_use_field_separator(self):
+        self.assertEqual(runtime.FIELD_SEPARATOR, "|")
+        commands = (
+            (runtime.PODMAN_VERSION_FIELDS, 4),
+            (runtime.PODMAN_INFO, 4),
+            (runtime.DOCKER_VERSION, 6),
+            (runtime.DOCKER_INFO, 3),
+        )
+        for command, field_count in commands:
+            with self.subTest(command=command[:2]):
+                format_body = command[command.index("--format") + 1]
+                self.assertNotIn("\t", format_body)
+                self.assertEqual(
+                    format_body.count(runtime.FIELD_SEPARATOR), field_count - 1
+                )
 
     def test_mount_rendering_and_validation(self):
         source = Path("/host/source")
