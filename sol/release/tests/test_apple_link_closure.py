@@ -1359,11 +1359,29 @@ class AppleLinkClosureTest(unittest.TestCase):
         root = Path(temporary.name)
         prefix = root / "prefix"
         installed = install_configured_nvat(self.production_build, prefix)
-        self.assertEqual(installed.returncode, 0, installed.stderr)
-        return temporary, prefix
+        self.assertEqual(
+            installed.completed.returncode, 0, installed.completed.stderr
+        )
+        return temporary, prefix, installed
+
+    def test_install_fixture_matches_production_libdir(self):
+        temporary, _prefix, installed = self.install_fixture()
+        with temporary:
+            cache = (self.production_build / "CMakeCache.txt").read_text(
+                encoding="utf-8"
+            )
+            libdirs = re.findall(
+                r"^CMAKE_INSTALL_LIBDIR:PATH=(.+)$", cache, re.MULTILINE
+            )
+            self.assertEqual(len(libdirs), 1, libdirs)
+            self.assertEqual(installed.libdir.name, libdirs[0])
+            self.assertTrue(installed.library.exists())
+            self.assertTrue(installed.namelink.exists())
+            self.assertEqual(installed.library.parent, installed.libdir)
+            self.assertEqual(installed.namelink.parent, installed.libdir)
 
     def test_install_export_omits_private_platform_closure(self):
-        temporary, prefix = self.install_fixture()
+        temporary, prefix, _installed = self.install_fixture()
         with temporary:
             cmake_dir = prefix / "share/cmake/nvat"
             targets = (cmake_dir / "nvatTargets.cmake").read_text(encoding="utf-8")
@@ -1378,7 +1396,7 @@ class AppleLinkClosureTest(unittest.TestCase):
                 self.assertIn(f"find_dependency({package} REQUIRED)", config)
 
     def test_config_stubbed_clean_prefix_consumer_configures(self):
-        temporary, prefix = self.install_fixture()
+        temporary, prefix, installed = self.install_fixture()
         with temporary:
             root = Path(temporary.name)
             stubs = write_package_config_stubs(
@@ -1416,12 +1434,12 @@ class AppleLinkClosureTest(unittest.TestCase):
             link = (build / "CMakeFiles/consumer.dir/link.txt").read_text(
                 encoding="utf-8"
             )
-            self.assertIn(str(prefix / "lib/libnvat.so.1.2.2"), link)
+            self.assertIn(str(installed.library), link)
             self.assertNotIn("CoreFoundation", link)
             self.assertNotIn("Iconv", link)
 
     def test_use_system_nvat_cli_has_no_direct_platform_edges(self):
-        temporary, prefix = self.install_fixture()
+        temporary, prefix, installed = self.install_fixture()
         with temporary:
             base_prepare = installed_header_fixture_prepare()
 
@@ -1436,7 +1454,7 @@ class AppleLinkClosureTest(unittest.TestCase):
                 arguments.extend(
                     (
                         f"-DNVAT_INCLUDE_DIR={prefix / 'include'}",
-                        f"-DNVAT_LIBRARY={prefix / 'lib/libnvat.so'}",
+                        f"-DNVAT_LIBRARY={installed.namelink}",
                     )
                 )
                 return arguments, project_include
@@ -1455,13 +1473,13 @@ class AppleLinkClosureTest(unittest.TestCase):
             with configured_temporary:
                 self.assertEqual(completed.returncode, 0, completed.stderr)
                 _codemodel, targets = load_codemodel(build)
-                expected_library = str(prefix / "lib/libnvat.so")
-                expected_rpath = f"-Wl,-rpath,{prefix / 'lib'}:"
+                expected_library = str(installed.namelink)
+                expected_rpath = f"-Wl,-rpath,{installed.libdir}:"
                 fragments = library_fragments(targets["nvattest"])
                 self.assertEqual(fragments, [expected_rpath, expected_library])
                 self.assertEqual(
                     normalized_library_fragments(targets["nvattest"]),
-                    [expected_rpath, "libnvat.so"],
+                    [expected_rpath, installed.namelink.name],
                 )
                 link = (build / "CMakeFiles/nvattest.dir/link.txt").read_text(
                     encoding="utf-8"

@@ -1,3 +1,4 @@
+from collections import namedtuple
 import json
 import re
 import shlex
@@ -9,6 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 HEADER_BOUNDARY_CMAKE = (
     ROOT / "nv-attestation-sdk-cpp/cmake/nvat_header_consumer_boundary.cmake"
+)
+InstalledNvat = namedtuple(
+    "InstalledNvat", ("completed", "libdir", "library", "namelink")
 )
 
 
@@ -247,7 +251,7 @@ def install_configured_nvat(build, prefix):
     install_script = build / "nv-attestation-sdk-build/cmake_install.cmake"
     source_paths = set()
     for value in re.findall(
-        r'"([^"]+/libnvat\.(?:so|dylib)(?:\.[0-9.]+)?)"',
+        r'"([^"]+/libnvat(?:\.(?:so|dylib)(?:\.[0-9.]+)?|\.[0-9.]+\.dylib))"',
         install_script.read_text(encoding="utf-8"),
     ):
         candidate = Path(value)
@@ -260,12 +264,45 @@ def install_configured_nvat(build, prefix):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
     (build / "nvattest").touch()
-    return subprocess.run(
+    completed = subprocess.run(
         ["cmake", "--install", str(build), "--prefix", str(prefix)],
         text=True,
         capture_output=True,
         check=False,
     )
+    if completed.returncode != 0:
+        return InstalledNvat(completed, None, None, None)
+
+    targets_release = prefix / "share/cmake/nvat/nvatTargets-release.cmake"
+    locations = re.findall(
+        r'^\s*IMPORTED_LOCATION_RELEASE "\$\{_IMPORT_PREFIX\}/([^"]+)"$',
+        targets_release.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    if len(locations) != 1:
+        raise AssertionError(
+            "expected exactly one IMPORTED_LOCATION_RELEASE; "
+            f"observed values: {locations}"
+        )
+
+    library = prefix / locations[0]
+    libdir = library.parent
+    namelinks = [
+        candidate
+        for candidate in (libdir / "libnvat.so", libdir / "libnvat.dylib")
+        if candidate.exists()
+    ]
+    if len(namelinks) != 1:
+        raise AssertionError(
+            "expected exactly one installed libnvat namelink; "
+            f"observed paths: {[str(candidate) for candidate in namelinks]}"
+        )
+    namelink = namelinks[0]
+    if not library.exists():
+        raise AssertionError(
+            f"installed export names a missing library: {library}"
+        )
+    return InstalledNvat(completed, libdir, library, namelink)
 
 
 def write_package_config_stubs(root, packages):
