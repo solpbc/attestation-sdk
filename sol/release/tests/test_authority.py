@@ -30,7 +30,7 @@ class AuthorityTest(unittest.TestCase):
         self.assertNotIn("openssl_configure_target", data.targets[authority.TARGET_IDS[0]])
         self.assertIn("required_tools", data.targets["macos-arm64"])
         self.assertNotIn("required_tool_versions", data.targets["macos-arm64"])
-        self.assertEqual(data.release["sol_revision"], 2)
+        self.assertEqual(data.release["sol_revision"], 3)
         self.assertRegex(data.release["upstream_base_commit"], r"^[0-9a-f]{40}$")
         macos = data.targets["macos-arm64"]
         self.assertEqual(
@@ -90,8 +90,15 @@ class AuthorityTest(unittest.TestCase):
                 authority.load(path)
 
     def test_unknown_field_is_rejected(self):
-        source = authority.load().path.read_text(encoding="utf-8")
-        source = source.replace("sol_revision = 2", "sol_revision = 2\nsurprise = true")
+        landed = authority.load()
+        source = landed.path.read_text(encoding="utf-8")
+        # Anchor on the landed value, not a literal: a hardcoded "sol_revision = 2"
+        # silently stopped matching when the revision was bumped, leaving this test
+        # injecting nothing and asserting against an unmodified file.
+        needle = f"sol_revision = {landed.release['sol_revision']}"
+        self.assertIn(needle, source)
+        source = source.replace(needle, needle + "\nsurprise = true")
+        self.assertIn("surprise = true", source)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "targets.toml"
             path.write_text(source, encoding="utf-8")
