@@ -24,7 +24,7 @@ generate_dependencies = importlib.util.module_from_spec(GENERATOR_SPEC)
 GENERATOR_SPEC.loader.exec_module(generate_dependencies)
 
 
-BASELINE = "b75e95ae0c08ac6eaa05673a0cf227b8723e2b58"
+BASELINE = "2b9312794cc05ec9ff5146d6ee0197e3e8b09887"
 TARGETS = Path("sol/release/targets.toml")
 AUTHORITY = Path("sol/release/release_rail/authority.py")
 SDK_CMAKE = Path("nv-attestation-sdk-cpp/CMakeLists.txt")
