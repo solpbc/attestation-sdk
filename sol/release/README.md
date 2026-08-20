@@ -163,3 +163,25 @@ the lode does not claim it.
 R2 publication begins only after all three quartets have been collected and
 the complete-set validator succeeds. Publication policy and credentials are
 outside this rail; a successful local build is not publication evidence.
+
+## After rebasing the sol series onto a new upstream
+
+The release authority pins the fork point. A rebase moves it, and nothing
+updates the pin automatically, so two edits are required in this order:
+
+1. Set `release.upstream_base_commit` in `targets.toml` to the new fork
+   point: `git merge-base HEAD upstream/main`. Leaving it stale does not
+   produce a subtly wrong artifact; `driver._source` refuses the release
+   outright with `source series contains merge commit <sha>`, because the
+   stale range then spans upstream merges.
+2. Move `BASELINE` in `sol/release/tests/test_baseline_stability.py` to the
+   commit made in step 1. `targets.toml` is frozen byte-for-byte against
+   that commit, so step 1 alone leaves `make rail-test` red. The two changes
+   cannot be combined into one commit for the same reason.
+
+Verify with `driver._source`, not with the test suite alone — a baseline
+move passes the suite whether or not the pin was actually corrected.
+
+Keep the pre-rebase tip on a branch. The old `BASELINE` commit leaves the
+series and stays reachable only there, along with any commit SHA cited in
+design notes.
