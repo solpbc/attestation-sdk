@@ -27,6 +27,7 @@ from release_rail import (  # noqa: E402
     apple,
     archive,
     authority,
+    curl,
     driver,
     manifest,
     runtime,
@@ -34,6 +35,23 @@ from release_rail import (  # noqa: E402
 )
 from support import tools_for  # noqa: E402
 from test_apple_link_closure import ReducedAppleFixture  # noqa: E402
+
+
+def plant_green_curl_config(build_dir):
+    script = build_dir / "curl-install" / "bin" / "curl-config"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    configure = " " + " ".join(
+        f"'{flag}'" for flag in curl.REQUIRED_CONFIGURE_FLAGS
+    )
+    script.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = "--ca" ]; then echo; exit 0; fi\n'
+        f'if [ "$1" = "--configure" ]; then printf "%s\\n" {configure!r}; '
+        "exit 0; fi\n"
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
 
 
 class SourceTest(unittest.TestCase):
@@ -259,6 +277,7 @@ class DriverPreflightTest(unittest.TestCase):
         errors = (
             archive.ArchiveError("tar broke"),
             apple.AppleToolchainError("Apple tools broke"),
+            curl.CurlConfigError("curl-config broke"),
             manifest.ManifestError("tool broke"),
             driver.SourceError("source broke"),
         )
@@ -346,6 +365,8 @@ class DriverRuntimeTest(unittest.TestCase):
                 container_commands.append(arguments)
                 if "/ownership" in " ".join(map(str, arguments)):
                     (cwd / "probe").write_text("", encoding="utf-8")
+            if "cmake --build build/release" in " ".join(map(str, arguments)):
+                plant_green_curl_config(Path(cwd) / "build/release")
             if "sol/release/generate-dependencies.py" in arguments:
                 Path(arguments[arguments.index("--json") + 1]).write_text(
                     "[]", encoding="utf-8"
@@ -1034,14 +1055,19 @@ class DriverRuntimeTest(unittest.TestCase):
                     return_value={"source_date_epoch": 1_700_000_000},
                 )
             )
+            def fake_build(_root, _target, build_dir, *_args, **_kwargs):
+                plant_green_curl_config(build_dir)
+
             for name in (
                 "_acquire_ca",
-                "_build",
                 "_stage",
                 "_validate_layout",
                 "_gate_binaries",
             ):
                 stack.enter_context(mock.patch.object(driver, name))
+            stack.enter_context(
+                mock.patch.object(driver, "_build", side_effect=fake_build)
+            )
 
             def run(arguments, **_kwargs):
                 if "sol/release/generate-dependencies.py" in arguments:

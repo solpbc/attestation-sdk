@@ -12,6 +12,7 @@ from pathlib import Path
 from release_rail import authority
 from release_rail import apple
 from release_rail import archive
+from release_rail import curl
 from release_rail import driver
 from release_rail import gate
 from release_rail import manifest
@@ -127,6 +128,7 @@ def main() -> int:
         authority.AuthorityError,
         apple.AppleToolchainError,
         archive.ArchiveError,
+        curl.CurlConfigError,
         driver.ReleaseError,
         driver.SourceError,
         gate.GateError,
