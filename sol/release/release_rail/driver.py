@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from . import apple, archive, authority, gate, manifest, runtime, set_validator, transaction
+from . import apple, archive, authority, curl, gate, manifest, runtime, set_validator, transaction
 
 
 class ReleaseError(RuntimeError):
@@ -584,6 +584,7 @@ def release(root: Path, target_id: str | None) -> dict[str, Path]:
         build_dir = root / "build/release"
         _build(root, target, build_dir, source["source_date_epoch"], selection)
         checkpoint("after-build")
+        curl.check(build_dir)
         _stage(root, build_dir, stage, target, ca)
         dependencies_json = owned / "dependencies.json"
         notices = stage / "share/THIRD_PARTY_NOTICES.md"

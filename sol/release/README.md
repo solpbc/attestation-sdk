@@ -126,6 +126,9 @@ both bare-container runtime gates, a same-commit byte-for-byte rebuild, and the
 full C++ CI gate. It did not construct or run native `linux-aarch64` or
 `macos-arm64` code. Docker selection and execution are authored from official
 Docker documentation and were not exercised on this lode.
+The vendored curl-config CA-configure assertion is unfalsified and must
+not be cited as coverage until VPE has rebuilt the vendored curl with
+the three flags removed and seen it go red.
 
 ### Post-ship VPE native work
 
