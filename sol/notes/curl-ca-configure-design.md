@@ -72,10 +72,15 @@ and feature flags are forbidden.
 (`test_driver.py:337-475`). Temp `root` has no build tree. `_build` is
 not patched; it calls `_run`, which is mocked to record the container
 argv and return success without creating files. `_stage` is patched.
-After line 586 the new call reads `root/build/release/curl-install` for
-real (the new module's `subprocess.run` is *not* `driver._run` and is
-*not* `driver.subprocess.run`, which this test patches only for
-`_tool_invoker`).
+After line 586 the new call reads `root/build/release/curl-install`
+for real. It does not go through `driver._run`. It also must not look
+up `subprocess.run` at call time: `curl.py` and `driver.py` both
+`import subprocess` (`curl.py:7`, `driver.py:9`), so
+`driver.subprocess` is the shared module. This test does
+`patch.object(driver.subprocess, "run")` at `test_driver.py:441-444`
+for `_tool_invoker`, which would intercept curl-config spawn. Shipped
+`curl.py` therefore binds `_run = subprocess.run` at import
+(`curl.py:17-19`) and `_output` calls that alias.
 
 Reaction without accommodation: `CurlConfigError` on the missing
 `curl-install/` directory; the test never reaches its container-argv
@@ -130,12 +135,14 @@ Exported names:
 * `class CurlConfigError(RuntimeError)` — house `<Thing>Error`, named
   for the evidence source rather than the generic module noun, the same
   way `apple.py` exports `AppleToolchainError`;
-* `check(build_dir: Path, runner: Runner = subprocess.run) -> None`.
+* `check(build_dir: Path) -> None` (`curl.py:55`).
 
-`Runner` is the same `Callable[..., subprocess.CompletedProcess]` alias
-`apple.py` uses. Production `builder()` calls `curl.check(build_dir)`
-with the default runner. `test_curl.py` uses the default runner against
-real stub scripts; it does not mock `subprocess`.
+There is no `runner` parameter and no `Runner` alias. `test_curl.py`
+uses real stub scripts and `test_driver.py` plants real trees, so
+nothing injects a fake; a public injection knob with no injector is a
+"just in case" flag and was dropped. Production `builder()` calls
+`curl.check(build_dir)`. Spawn goes through the import-time `_run`
+alias (`curl.py:17-19`), not a call-time `subprocess.run` lookup.
 
 `rail.py` `main()`'s exception tuple (`rail.py:126-139`) must include
 `curl.CurlConfigError`. An omitted type becomes an uncaught traceback
@@ -173,9 +180,9 @@ not. Token membership of `--without-ca-path` is not satisfied by
 
 Exact shape:
 
-* `check(build_dir, runner=subprocess.run) -> None` is the only public
-  entry. It performs the filesystem checks (Part 4), invokes
-  `--ca` then `--configure`, then parses configure output.
+* `check(build_dir: Path) -> None` is the only public entry. It
+  performs the filesystem checks (Part 4), invokes `--ca` then
+  `--configure` through `_run`, then parses configure output.
 * `_configure_tokens(output: str) -> tuple[str, ...]` is the private
   parse: `return tuple(shlex.split(output))`. No other parser is used.
 
@@ -190,12 +197,12 @@ inspects the filesystem *before* spawn, in this order. `{install}` is
 `build_dir / "curl-install"`. `{script}` is
 `build_dir / "curl-install" / "bin" / "curl-config"`.
 
-Do not use `driver._run`. After the three filesystem checks, invoke with
-`runner(..., check=False, text=True, stdout=PIPE, stderr=PIPE)`. Prep
-measured that a non-executable script raises `PermissionError`, not exit
-126; the executability check exists so message 3 is produced without
-relying on that exception type. Nonzero status is a `CompletedProcess`,
-not `CalledProcessError`.
+Do not use `driver._run`. After the three filesystem checks, invoke
+through the import-time `_run` alias (`check=False`, `text=True`,
+`stdout`/`stderr=PIPE`). Prep measured that a non-executable script
+raises `PermissionError`, not exit 126; the executability check exists
+so message 3 is produced without relying on that exception type.
+Nonzero status is a `CompletedProcess`, not `CalledProcessError`.
 
 Verbatim messages (only `{install}`, `{script}`, `{flag}`, `{returncode}`,
 and `{stderr}` are interpolated; `{flag}` is `--ca` or `--configure`):
@@ -317,8 +324,8 @@ leading space and single-quoting, without inventing tokens:
 ```
 
 Green `--ca` stdout is empty (the stub `echo` with no arguments, matching
-the live script). Tests call `curl.check(build_dir)` with the real
-runner.
+the live script). Tests call `curl.check(build_dir)` against real stub
+scripts.
 
 Nine cases, all fail-closed, no `skip`/`skipIf`:
 
@@ -415,9 +422,15 @@ lode coverage claim.
   that gap does not change the assertion. Darwin `curl-config` was not
   observed; CMakeLists already passes the same three flags on every
   target (`prep` §1).
-* `test_release_threads_one_selection...` patches `driver.subprocess.run`
-  for `_tool_invoker`. That patch must not be broadened to the new
-  module's `subprocess.run`, or the planted stub would never execute.
+* `test_release_threads_one_selection_through_every_container_command`
+  patches `driver.subprocess.run` at `test_driver.py:441-444` for
+  `_tool_invoker`. That is the shared `subprocess` module, so a
+  call-time `subprocess.run` lookup in `curl.py` would hit `tool_run`.
+  Shipped code keeps curl-config spawn real by binding
+  `_run = subprocess.run` at import (`curl.py:17-19`). The cleaner
+  long-term fix is on the test side: narrow that patch to the `invoke`
+  closure or `_tool_invoker`'s own reference so `curl.py` could call
+  `subprocess.run` directly. Recorded follow-up; not done here.
 * A future `builder()` test that fakes `_build` success without planting
   `curl-install/` will fail closed. That is the intended coherence
   rule, not a defect.
