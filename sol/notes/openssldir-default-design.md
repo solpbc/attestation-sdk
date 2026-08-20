@@ -224,8 +224,8 @@ Threading the build prefix from `driver` would add a parameter to
 `gate_file` and both `_gate_binaries` calls (`driver.py:606` staged,
 `:627` extracted), and every `test_gate.py` fixture would have to plant
 a matching prefix. The gate already searches whole-file bytes
-(`elf.py:81-82`, `macho.py:81`; `_forbidden_strings` at `gate.py:39-42`,
-called from `gate_elf` / `gate_macho`). A self-contained marker needs
+(`elf.py:81-82`, `macho.py:81`; `_forbidden_strings` at `gate.py:46-52`,
+called from `gate_elf` (`:80`) / `gate_macho` (`:142`)). A self-contained marker needs
 none of that. `is_binary_member` is unchanged; `nvattest` contains zero
 `openssl-install` bytes (prep), so the hit is `libnvat`, which is
 already gated.
@@ -240,7 +240,10 @@ banner, and two bare OPENSSLDIR occurrences. The four leaf paths are
 the exclusive set that can be marker-anchored without matching the
 survivors.
 
-Constant, beside `FORBIDDEN_CA_PATHS` in `gate.py`:
+Constant, beside `FORBIDDEN_CA_PATHS` in `gate.py`.
+`gate.FORBIDDEN_OPENSSLDIR_PATHS` in `sol/release/release_rail/gate.py`
+is the single authoritative list; the rendering below is illustrative
+of the decision, not a second source.
 
 ```text
 FORBIDDEN_OPENSSLDIR_PATHS = (
@@ -310,10 +313,10 @@ Those misses are accepted. The gate is four fragments and one
 * Constant: `FORBIDDEN_OPENSSLDIR_PATHS` (above), a sibling of
   `FORBIDDEN_CA_PATHS` placed directly below it. The members are path
   fragments, not generic strings.
-* Check: inside the existing `_forbidden_strings` (`gate.py:39-42`),
+* Check: inside the existing `_forbidden_strings` (`gate.py:46-52`),
   after the `FORBIDDEN_CA_PATHS` loop, a second loop over
   `FORBIDDEN_OPENSSLDIR_PATHS`. Call sites stay
-  `gate_elf` / `gate_macho` / `gate_file`. Both staged and extracted
+  `gate_elf` (`:80`) / `gate_macho` (`:142`) / `gate_file`. Both staged and extracted
   `driver._gate_binaries` passes are covered without a `driver.py` edit.
 * Error message matches the neighbour two lines above in
   `_forbidden_strings` (`{path}: compiled host CA path found: …`),

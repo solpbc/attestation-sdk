@@ -151,6 +151,9 @@ class GateTest(unittest.TestCase):
                     )
 
     def test_prefix_derived_ossl_modules_is_not_forbidden(self):
+        # Prep Q3's verbatim pre-fix MODULESDIR C-string. Do not generalize:
+        # an approximated path would weaken the proof that prefix-derived
+        # openssl-install strings do not trip FORBIDDEN_OPENSSLDIR_PATHS.
         twin = (
             "/home/jer/.hopper/worktrees/6patvfem/build/"
             "openssl-install/lib/ossl-modules"
