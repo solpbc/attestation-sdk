@@ -1,5 +1,5 @@
 [release]
-sol_revision = 2
+sol_revision = 3
 upstream_base_commit = "73efa3ac1bec28ed7d7f0c0811a6c993e722dbd4"
 ca_snapshot_date = "2026-07-16"
 ca_bundle_url = "https://curl.se/ca/cacert-2026-07-16.pem"
