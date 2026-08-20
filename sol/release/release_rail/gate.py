@@ -12,6 +12,13 @@ from . import elf, macho
 FORBIDDEN_CA_PATHS = (
     b"/etc/ssl/certs/ca-certificates.crt",
     b"/etc/pki/tls/certs/ca-bundle.crt",
+    b"/etc/ssl/cert.pem",
+)
+FORBIDDEN_OPENSSLDIR_PATHS = (
+    b"openssl-install/certs",
+    b"openssl-install/cert.pem",
+    b"openssl-install/private",
+    b"openssl-install/ct_log_list.cnf",
 )
 _VERSION = re.compile(r"^(GLIBC|GLIBCXX|CXXABI)_([0-9]+(?:\.[0-9]+)*)$")
 _ELF_MACHINES = {"EM_X86_64": elf.EM_X86_64, "EM_AARCH64": elf.EM_AARCH64}
@@ -40,6 +47,9 @@ def _forbidden_strings(path: Path, data: bytes) -> None:
     for value in FORBIDDEN_CA_PATHS:
         if value in data:
             raise GateError(f"{path}: compiled host CA path found: {value.decode()}")
+    for value in FORBIDDEN_OPENSSLDIR_PATHS:
+        if value in data:
+            raise GateError(f"{path}: build-tree openssldir path found: {value.decode()}")
 
 
 def gate_elf(path: Path, target: dict[str, Any], allowlist: list[str]) -> None:

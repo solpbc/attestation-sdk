@@ -233,7 +233,7 @@ else()
       "CC=${_EP_CC}"
       "CFLAGS=${_EP_OPENSSL_CFLAGS}"
       --prefix=${OPENSSL_INSTALL_DIR}
-      --openssldir=${OPENSSL_INSTALL_DIR}
+      --openssldir=/nvat-openssl  # Deliberately non-existent: no baked default trust store
       --libdir=lib
       no-shared
       no-tests      # Skip ~100+ test binaries — not needed, saves link-time memory
@@ -243,7 +243,7 @@ else()
       no-engine     # Disable deprecated ENGINE API — unused with static linking
       no-dtls       # Disable DTLS — SDK uses TLS only, not UDP-based DTLS
     BUILD_COMMAND ${NVAT_EP_ENV_COMMAND} make -j${CMAKE_BUILD_PARALLEL_LEVEL}
-    INSTALL_COMMAND ${NVAT_EP_ENV_COMMAND} make install_sw install_ssldirs
+    INSTALL_COMMAND ${NVAT_EP_ENV_COMMAND} make install_sw
     BUILD_IN_SOURCE 1
   )
 

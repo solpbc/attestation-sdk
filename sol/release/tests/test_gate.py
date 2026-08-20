@@ -119,6 +119,63 @@ class GateTest(unittest.TestCase):
                         macho_allowlist,
                     )
 
+    def test_baked_openssldir_paths_fail_for_each_format(self):
+        elf_target, elf_allowlist = self.target(authority.TARGET_IDS[0])
+        macho_target, macho_allowlist = self.target(authority.TARGET_IDS[2])
+        for fragment in gate.FORBIDDEN_OPENSSLDIR_PATHS:
+            text = fragment.decode()
+            with self.subTest(format="elf", path=text):
+                with self.assertRaisesRegex(
+                    gate.GateError, "build-tree openssldir path found"
+                ):
+                    gate.gate_file(
+                        self.write(
+                            "bad.elf",
+                            fixtures.elf_fixture(
+                                elf.EM_X86_64, strings=(text,)
+                            ),
+                        ),
+                        elf_target,
+                        elf_allowlist,
+                    )
+            with self.subTest(format="macho", path=text):
+                with self.assertRaisesRegex(
+                    gate.GateError, "build-tree openssldir path found"
+                ):
+                    gate.gate_file(
+                        self.write(
+                            "bad.macho", fixtures.macho_fixture(strings=(text,))
+                        ),
+                        macho_target,
+                        macho_allowlist,
+                    )
+
+    def test_prefix_derived_ossl_modules_is_not_forbidden(self):
+        twin = (
+            "/home/jer/.hopper/worktrees/6patvfem/build/"
+            "openssl-install/lib/ossl-modules"
+        )
+        elf_target, elf_allowlist = self.target(authority.TARGET_IDS[0])
+        macho_target, macho_allowlist = self.target(authority.TARGET_IDS[2])
+        with self.subTest(format="elf"):
+            gate.gate_file(
+                self.write(
+                    "ok.elf",
+                    fixtures.elf_fixture(elf.EM_X86_64, strings=(twin,)),
+                ),
+                elf_target,
+                elf_allowlist,
+            )
+        with self.subTest(format="macho"):
+            gate.gate_file(
+                self.write(
+                    "ok.macho",
+                    fixtures.macho_fixture(strings=(twin,)),
+                ),
+                macho_target,
+                macho_allowlist,
+            )
+
     def test_valid_macho_executable_and_library(self):
         target, allowlist = self.target(authority.TARGET_IDS[2])
         gate.gate_file(

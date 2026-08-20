@@ -129,6 +129,9 @@ Docker documentation and were not exercised on this lode.
 The vendored curl-config CA-configure assertion is unfalsified and must
 not be cited as coverage until VPE has rebuilt the vendored curl with
 the three flags removed and seen it go red.
+The vendored OpenSSL openssldir gate is unfalsified and must
+not be cited as coverage until VPE has rebuilt with the openssldir
+pointed back into the build tree and seen it go red.
 
 ### Post-ship VPE native work
 
