@@ -176,6 +176,8 @@ target_link_libraries(nv-attestation-unit-tests PRIVATE
 # spdlog/fmt headers needed for compilation (nvat has them statically linked, no need to link again)
 target_include_directories(nv-attestation-unit-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
+)
+target_include_directories(nv-attestation-unit-tests SYSTEM PRIVATE
     ${spdlog_SOURCE_DIR}/include
     ${fmt_SOURCE_DIR}/include
 )

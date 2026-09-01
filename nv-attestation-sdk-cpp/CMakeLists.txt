@@ -110,6 +110,7 @@ FetchContent_Declare(
   EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(fmt)
+set_target_properties(fmt PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
 
 # Build spdlog as static library using our fetched fmt
 set(SPDLOG_INSTALL OFF CACHE BOOL "Don't install spdlog headers" FORCE)
@@ -122,6 +123,7 @@ FetchContent_Declare(
   EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(spdlog)
+set_target_properties(spdlog PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
 
 # Restore original settings
 set(BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS_SAVED})
@@ -360,9 +362,12 @@ target_include_directories(nvat
     src
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     ${regorus_SOURCE_DIR}/bindings/ffi
-    # spdlog and fmt include dirs (linked statically via TARGET_FILE below)
-    ${spdlog_SOURCE_DIR}/include
-    ${fmt_SOURCE_DIR}/include
+)
+
+# spdlog and fmt include dirs (linked statically via TARGET_FILE below)
+target_include_directories(nvat SYSTEM PRIVATE
+  ${spdlog_SOURCE_DIR}/include
+  ${fmt_SOURCE_DIR}/include
 )
 
 if (SANITIZER)
