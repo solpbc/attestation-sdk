@@ -48,3 +48,21 @@ requires `DESTDIR` (or a post-install rewrite), which changes
 `CMakeLists.txt:307`, `:317`, `:334`, and `:350` resolve to.
 
 Recorded and left.
+
+## Same class: the Linux executable's RUNPATH
+
+The released Linux `bin/nvattest` (1.2.2-sol.2 and 1.2.2-sol.3, x86_64
+and aarch64) carries `DT_RUNPATH`
+`/src/build/release/nv-attestation-sdk-build:`. The build-tree entry is
+the same leak as the paths above. The trailing empty entry is worse:
+glibc resolves it against the working directory, so `libstdc++.so.6`,
+`libm.so.6` and the rest of the executable's `DT_NEEDED` are looked for
+in whatever directory the caller runs from, before the system cache.
+The macOS executable is clean (`@executable_path/../lib` only).
+
+The consumer that installs this archive now always starts the process
+from `/`, which closes the working-directory entry for every revision.
+The artifact itself still carries both entries. Fix them in the next
+release revision alongside `ENGINESDIR`/`MODULESDIR`: set the
+executable's RUNPATH to `$ORIGIN/../lib` and confirm with
+`readelf -d bin/nvattest` on both Linux targets.
