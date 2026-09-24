@@ -1,4 +1,4 @@
-# sol pbc build rail for the attestation-sdk fork (sol/portable branch).
+# sol pbc build rail for the attestation-sdk fork (main is our line; NVIDIA is the upstream remote).
 # Linux containers prefer Podman and fall back to a usable local Docker engine.
 # The vendored dep build (USE_SYSTEM_DEPS=OFF) is used for BOTH ci and release so CI
 # tests the same configuration that ships. (el8 system curl 7.61 predates the URL API
