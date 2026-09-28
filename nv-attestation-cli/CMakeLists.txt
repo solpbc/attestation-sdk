@@ -1,3 +1,4 @@
+# Modified by sol pbc.
 cmake_minimum_required(VERSION 3.11)
 include("${CMAKE_CURRENT_LIST_DIR}/../nv-attestation-sdk-cpp/cmake/nvat_apple_sdk.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/../nv-attestation-sdk-cpp/cmake/nvat_header_consumer_boundary.cmake")

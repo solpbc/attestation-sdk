@@ -1,3 +1,4 @@
+# Modified by sol pbc.
 cmake_minimum_required(VERSION 3.11)
 project(nv-attestation-cli-tests)
 
