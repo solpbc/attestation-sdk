@@ -60,9 +60,10 @@ glibc resolves it against the working directory, so `libstdc++.so.6`,
 in whatever directory the caller runs from, before the system cache.
 The macOS executable is clean (`@executable_path/../lib` only).
 
-The consumer that installs this archive now always starts the process
-from `/`, which closes the working-directory entry for every revision.
-The artifact itself still carries both entries. Fix them in the next
-release revision alongside `ENGINESDIR`/`MODULESDIR`: set the
-executable's RUNPATH to `$ORIGIN/../lib` and confirm with
-`readelf -d bin/nvattest` on both Linux targets.
+The journal consumer starts older revisions from `/`, closing the
+working-directory entry for those installs. In 1.2.2-sol.4 (2026-09-28),
+both published Linux `bin/nvattest` executables carry only
+`$ORIGIN/../lib` in `DT_RUNPATH`, confirmed with `readelf -d` on the
+release archives. The four `ENGINESDIR`/`MODULESDIR` build-path strings
+remain in the sol.4 aarch64 `libnvat.so`. Correct those paths in the
+next SDK release.
