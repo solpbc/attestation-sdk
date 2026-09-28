@@ -64,6 +64,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(regorus)
 
+# Corrosion builds this fetched source in place. Supply the release's resolved
+# Cargo graph before import so every native target uses the same crate versions.
+if(NVAT_RELEASE_ARTIFACT)
+  configure_file(
+    "${CMAKE_CURRENT_LIST_DIR}/../sol/release/regorus-Cargo.lock"
+    "${regorus_SOURCE_DIR}/bindings/ffi/Cargo.lock"
+    COPYONLY
+  )
+endif()
+
 corrosion_import_crate(
   MANIFEST_PATH "${regorus_SOURCE_DIR}/bindings/ffi/Cargo.toml"
   PROFILE "release"

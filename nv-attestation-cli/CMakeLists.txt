@@ -117,6 +117,13 @@ if(APPLE)
         INSTALL_RPATH "@executable_path/../lib"
         BUILD_WITH_INSTALL_RPATH TRUE
     )
+elseif(NVAT_RELEASE_ARTIFACT AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # The release copies this binary into bin/ beside lib/. Its loader path
+    # must name that layout, never the build tree or the caller's directory.
+    set_target_properties(nvattest PROPERTIES
+        INSTALL_RPATH "$ORIGIN/../lib"
+        BUILD_WITH_INSTALL_RPATH TRUE
+    )
 endif()
 
 nvat_target_include_pinned_logging_headers(

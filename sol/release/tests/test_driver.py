@@ -52,6 +52,15 @@ def plant_green_curl_config(build_dir):
         encoding="utf-8",
     )
     script.chmod(0o755)
+    lock = (
+        build_dir / "nv-attestation-sdk-build" / "_deps" / "regorus-src"
+        / "bindings" / "ffi" / "Cargo.lock"
+    )
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_bytes((RELEASE_DIR / "regorus-Cargo.lock").read_bytes())
+    release_pin = build_dir.parents[1] / "sol" / "release" / "regorus-Cargo.lock"
+    release_pin.parent.mkdir(parents=True, exist_ok=True)
+    release_pin.write_bytes(lock.read_bytes())
 
 
 class SourceTest(unittest.TestCase):

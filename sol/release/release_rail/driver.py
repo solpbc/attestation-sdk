@@ -280,6 +280,7 @@ def _build(
                 "cmake -S nv-attestation-cli -B build/release "
                 "-DUSE_SYSTEM_NVAT=OFF -DUSE_SYSTEM_DEPS=OFF "
                 "-DBUILD_TESTING=OFF -DBUILD_SHARED_LIBS=ON "
+                "-DNVAT_RELEASE_ARTIFACT=ON "
                 "-DCMAKE_BUILD_TYPE=Release && "
                 "cmake --build build/release -j$(nproc)",
             ],
@@ -302,6 +303,7 @@ def _build(
                     "-DUSE_SYSTEM_DEPS=OFF",
                     "-DBUILD_TESTING=OFF",
                     "-DBUILD_SHARED_LIBS=ON",
+                    "-DNVAT_RELEASE_ARTIFACT=ON",
                     "-DCMAKE_BUILD_TYPE=Release",
                     f"-DCMAKE_OSX_DEPLOYMENT_TARGET={target['abi_floor']['macos']}",
                 ],
@@ -585,6 +587,26 @@ def release(root: Path, target_id: str | None) -> dict[str, Path]:
         _build(root, target, build_dir, source["source_date_epoch"], selection)
         checkpoint("after-build")
         curl.check(build_dir)
+        tools = manifest.capture_build_tools(
+            target,
+            build_dir,
+            _tool_invoker(root, target, selection),
+            runtime_evidence=selection.evidence if selection is not None else None,
+            apple_evidence=(
+                apple.resolve(target, build_dir)
+                if target["host_os"] == "Darwin"
+                else None
+            ),
+        )
+        locks = [
+            path for path in build_dir.rglob("Cargo.lock")
+            if path.as_posix().endswith("/regorus-src/bindings/ffi/Cargo.lock")
+        ]
+        if len(locks) != 1:
+            raise ReleaseError(f"expected one built regorus Cargo.lock, found {len(locks)}")
+        pinned_lock = root / "sol/release/regorus-Cargo.lock"
+        if locks[0].read_bytes() != pinned_lock.read_bytes():
+            raise ReleaseError("built regorus Cargo.lock differs from release pin")
         _stage(root, build_dir, stage, target, ca)
         dependencies_json = owned / "dependencies.json"
         notices = stage / "share/THIRD_PARTY_NOTICES.md"
@@ -599,6 +621,10 @@ def release(root: Path, target_id: str | None) -> dict[str, Path]:
                 str(dependencies_json),
                 "--notices",
                 str(notices),
+                "--cargo-lock",
+                str(locks[0]),
+                "--rustc-version",
+                tools["rustc"]["version"],
             ],
             cwd=root,
         )
@@ -627,17 +653,6 @@ def release(root: Path, target_id: str | None) -> dict[str, Path]:
         _gate_binaries(extracted, data, target)
         checkpoint("after-static-extracted-gate")
         dependencies = json.loads(dependencies_json.read_text(encoding="utf-8"))
-        tools = manifest.capture_build_tools(
-            target,
-            build_dir,
-            _tool_invoker(root, target, selection),
-            runtime_evidence=selection.evidence if selection is not None else None,
-            apple_evidence=(
-                apple.resolve(target, build_dir)
-                if target["host_os"] == "Darwin"
-                else None
-            ),
-        )
         value = manifest.build(
             release=data.release,
             target=target,

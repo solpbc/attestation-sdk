@@ -30,7 +30,7 @@ class AuthorityTest(unittest.TestCase):
         self.assertNotIn("openssl_configure_target", data.targets[authority.TARGET_IDS[0]])
         self.assertIn("required_tools", data.targets["macos-arm64"])
         self.assertNotIn("required_tool_versions", data.targets["macos-arm64"])
-        self.assertEqual(data.release["sol_revision"], 3)
+        self.assertEqual(data.release["sol_revision"], 4)
         self.assertRegex(data.release["upstream_base_commit"], r"^[0-9a-f]{40}$")
         macos = data.targets["macos-arm64"]
         self.assertEqual(

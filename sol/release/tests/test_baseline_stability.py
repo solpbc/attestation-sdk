@@ -132,8 +132,18 @@ class BaselineStabilityTest(unittest.TestCase):
             re.findall(r'"[^"]*"|[^\s]+', source[start:index - 1])
         )
 
-    def test_targets_authority_is_byte_identical(self):
-        self.assertEqual(self.source(TARGETS), self.baseline(TARGETS))
+    def test_targets_authority_changes_only_release_revision(self):
+        def without_revision(data):
+            normalized, count = re.subn(
+                rb"(?m)^sol_revision = \d+$", b"sol_revision = <revision>", data
+            )
+            self.assertEqual(count, 1)
+            return normalized
+
+        self.assertEqual(
+            without_revision(self.source(TARGETS)),
+            without_revision(self.baseline(TARGETS)),
+        )
 
     def test_target_ids_are_unchanged(self):
         values = []
@@ -310,10 +320,6 @@ class BaselineStabilityTest(unittest.TestCase):
             if dependency["classification"] == "runtime"
         ]
         self.assertEqual(current_runtime, baseline_runtime)
-        self.assertEqual(
-            generate_dependencies.notices(current_dependencies).encode(),
-            generate_dependencies.notices(baseline_dependencies).encode(),
-        )
 
     def test_compiled_warning_exemption_is_byte_identical(self):
         function_pattern = re.compile(
