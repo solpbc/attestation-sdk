@@ -8,6 +8,11 @@ tools. Inspect it before operating the rail:
 python3 sol/release/rail.py authority host-target
 ```
 
+**Opening a new Sol revision?** Whatever the reason, it carries the open work
+in [`../notes/build-host-path-hygiene.md`](../notes/build-host-path-hygiene.md):
+libxml2 without a catalog, compile-time path remapping, a build-root gate and an
+ELF RUNPATH gate.
+
 ## Native construction
 
 Run exactly one target on its matching native host:
