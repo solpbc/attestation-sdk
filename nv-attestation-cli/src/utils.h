@@ -32,6 +32,7 @@ namespace nvattest {
         EvidenceVerificationOptions& options,
         const EvidenceCollectionOptions* collection_options = nullptr);
     void add_common_options(CLI::App& app, CommonOptions& options);
+    void validate_offline_status_options(const CLI::App& app, const EvidenceVerificationOptions& options);
 
     void print_error_help(const CliLogger& logger, nvat_rc_t rc);
     nvat_rc_t init_sdk(CliLogger& logger, const CommonOptions& common_options);

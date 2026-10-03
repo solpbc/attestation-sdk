@@ -54,6 +54,11 @@ namespace nvattest {
         std::string nras_url;
         std::string service_key;
         std::string ca_bundle_path;
+        // sol: offline status-proof mode. Both are set together or not at all.
+        std::string ocsp_proof_bundle;
+        std::string ocsp_verification_time;
+
+        bool offline_status_proofs() const { return !ocsp_proof_bundle.empty(); }
     };
 
     struct CommonOptions {

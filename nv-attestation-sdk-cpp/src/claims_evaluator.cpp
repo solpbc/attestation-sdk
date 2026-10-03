@@ -117,40 +117,57 @@ std::shared_ptr<IClaimsEvaluator> ClaimsEvaluatorFactory::create_overall_result_
             cert_chain := claims["x-nvidia-gpu-attestation-report-cert-chain"]
             cert_chain["x-nvidia-cert-status"] == "valid"
             cert_chain["x-nvidia-cert-ocsp-status"] == "good"
-            cert_chain["x-nvidia-cert-ocsp-nonce-matches"] == true
             cert_chain["x-nvidia-cert-ocsp-response-valid"] == true
+            check_cert_chain_status_freshness(cert_chain)
         }
 
         check_gpu_driver_rim_cert_chain(claims) {
             cert_chain := claims["x-nvidia-gpu-driver-rim-cert-chain"]
             cert_chain["x-nvidia-cert-status"] == "valid"
             cert_chain["x-nvidia-cert-ocsp-status"] == "good"
-            cert_chain["x-nvidia-cert-ocsp-nonce-matches"] == true
             cert_chain["x-nvidia-cert-ocsp-response-valid"] == true
+            check_cert_chain_status_freshness(cert_chain)
         }
 
         check_gpu_vbios_rim_cert_chain(claims) {
             cert_chain := claims["x-nvidia-gpu-vbios-rim-cert-chain"]
             cert_chain["x-nvidia-cert-status"] == "valid"
             cert_chain["x-nvidia-cert-ocsp-status"] == "good"
-            cert_chain["x-nvidia-cert-ocsp-nonce-matches"] == true
             cert_chain["x-nvidia-cert-ocsp-response-valid"] == true
+            check_cert_chain_status_freshness(cert_chain)
         }
 
         check_switch_ar_cert_chain(claims) {
             cert_chain := claims["x-nvidia-switch-attestation-report-cert-chain"]
             cert_chain["x-nvidia-cert-status"] == "valid"
             cert_chain["x-nvidia-cert-ocsp-status"] == "good"
-            cert_chain["x-nvidia-cert-ocsp-nonce-matches"] == true
             cert_chain["x-nvidia-cert-ocsp-response-valid"] == true
+            check_cert_chain_status_freshness(cert_chain)
         }
 
         check_switch_bios_rim_cert_chain(claims) {
             cert_chain := claims["x-nvidia-switch-bios-rim-cert-chain"]
             cert_chain["x-nvidia-cert-status"] == "valid"
             cert_chain["x-nvidia-cert-ocsp-status"] == "good"
-            cert_chain["x-nvidia-cert-ocsp-nonce-matches"] == true
             cert_chain["x-nvidia-cert-ocsp-response-valid"] == true
+            check_cert_chain_status_freshness(cert_chain)
+        }
+
+        # sol: a status is fresh either because the request nonce came back
+        # (online), or because raw signed proofs were judged by signed age
+        # (offline). The second never reports a nonce match.
+        check_cert_chain_status_freshness(cert_chain) {
+            cert_chain["x-nvidia-cert-ocsp-nonce-matches"] == true
+            not cert_chain["x-sol-cert-ocsp-signed-age"]
+        }
+
+        check_cert_chain_status_freshness(cert_chain) {
+            cert_chain["x-nvidia-cert-ocsp-nonce-matches"] == false
+            signed_age := cert_chain["x-sol-cert-ocsp-signed-age"]
+            signed_age.version == 1
+            signed_age.mode == "signed-age"
+            signed_age.covered_certificates > 0
+            signed_age.status_deadline_unix > signed_age.verification_time_unix
         }
 
     )";

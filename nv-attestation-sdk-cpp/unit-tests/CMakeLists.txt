@@ -75,6 +75,7 @@ add_executable(nv-attestation-unit-tests
     ca_bundle_test.cpp
     claims_test.cpp
     nv_cache_test.cpp
+    status_proof_test.cpp
     verified_path_test.cpp
 ) 
 

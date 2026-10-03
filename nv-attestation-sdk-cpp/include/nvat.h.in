@@ -447,6 +447,37 @@ nvat_rc_t nvat_ocsp_client_create_default(
 );
 
 /**
+ * @brief sol: create an offline OCSP client over raw signed status proofs.
+ *
+ * The client has no HTTP implementation and never contacts an OCSP
+ * responder. Every certificate whose status is checked must be covered by
+ * exactly one SingleResponse in the bundle. A covering response must verify
+ * with the same responder authorization as the online client, carry
+ * thisUpdate and nextUpdate, have thisUpdate no more than 60 seconds after
+ * verification_time_unix, and be used before
+ * min(nextUpdate, thisUpdate + 86400). There is no expiry grace. Claims
+ * report the request nonce as not matching and carry an
+ * "x-sol-cert-ocsp-signed-age" object with the verification time, the
+ * chain's minimum deadline and its oldest thisUpdate.
+ *
+ * **Ownership**: On success, the caller assumes ownership of the allocated
+ *                @ref nvat_ocsp_client_t handle.
+ * @param bundle_der Version 1 status-proof bundle: DER
+ *        SEQUENCE { version INTEGER (1), responses SEQUENCE OF OCTET STRING },
+ *        each OCTET STRING one complete OCSPResponse. At most 16384 bytes,
+ *        16 responses and 2048 bytes per response.
+ * @param bundle_len Length of bundle_der in bytes.
+ * @param verification_time_unix The relying party's own time, in seconds
+ *        since the Unix epoch. Never take it from the attested party.
+ */
+nvat_rc_t nvat_ocsp_client_create_raw_proofs(
+    nvat_ocsp_client_t* out_client,
+    const uint8_t* bundle_der,
+    size_t bundle_len,
+    int64_t verification_time_unix
+);
+
+/**
  * @brief Create a cached OCSP client that wraps an existing OCSP client.
  *
  * **Ownership**: On success, the inner_client is safe to be free'd as it is
@@ -956,7 +987,9 @@ typedef uint8_t nvat_switch_claims_version_t;
  *
  * The default evidence policy requires that:
  * - OCSP status must be "good"
- * - OCSP nonce must match between the OCSP request and response
+ * - OCSP nonce must match between the OCSP request and response, or, for a
+ *   client created by nvat_ocsp_client_create_raw_proofs, the status must be
+ *   inside its signed-age deadline (sol)
  */
 nvat_rc_t nvat_evidence_policy_create_default(nvat_evidence_policy_t* policy);
 

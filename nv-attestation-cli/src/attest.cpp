@@ -16,6 +16,8 @@
  * limitations under the License.
  */
 
+#include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <set>
@@ -129,6 +131,44 @@ namespace nvattest {
     }
 
 
+    /**
+     * @brief sol: reads an offline status-proof bundle without reading more
+     * than the bundle limit allows.
+     */
+    static nvat_rc_t read_status_proof_bundle(const std::string& path, std::string& out_bundle) {
+        constexpr size_t MAX_BUNDLE_BYTES = 16384;
+        std::ifstream file(path, std::ios::binary);
+        if (!file) {
+            SPDLOG_ERROR("Failed to open status proof bundle: {}", path);
+            return NVAT_RC_BAD_ARGUMENT;
+        }
+        std::string bundle(MAX_BUNDLE_BYTES + 1, '\0');
+        file.read(&bundle[0], static_cast<std::streamsize>(bundle.size()));
+        std::streamsize read = file.gcount();
+        if (file.bad() || read <= 0 || static_cast<size_t>(read) > MAX_BUNDLE_BYTES) {
+            SPDLOG_ERROR("Status proof bundle is empty, unreadable or larger than {} bytes", MAX_BUNDLE_BYTES);
+            return NVAT_RC_BAD_ARGUMENT;
+        }
+        bundle.resize(static_cast<size_t>(read));
+        out_bundle = std::move(bundle);
+        return NVAT_RC_OK;
+    }
+
+    static nvat_rc_t parse_verification_time(const std::string& value, int64_t& out_time) {
+        if (value.empty() || value.size() > 18 || value.find_first_not_of("0123456789") != std::string::npos) {
+            return NVAT_RC_BAD_ARGUMENT;
+        }
+        int64_t parsed = 0;
+        for (char digit : value) {
+            parsed = parsed * 10 + (digit - '0');
+        }
+        if (parsed <= 0) {
+            return NVAT_RC_BAD_ARGUMENT;
+        }
+        out_time = parsed;
+        return NVAT_RC_OK;
+    }
+
     AttestOutput attest(
         CliLogger& logger,
         const EvidenceCollectionOptions& evidence_collection_options,
@@ -143,17 +183,26 @@ namespace nvattest {
             return AttestOutput(err);
         }
 
+        // sol: offline status mode builds no HTTP-backed component at all.
+        const bool offline_status = evidence_verification_options.offline_status_proofs();
+        if (offline_status
+            && (evidence_verification_options.verifier != "local" || evidence_verification_options.rim_store != "dir")) {
+            return AttestOutput(NVAT_RC_BAD_ARGUMENT);
+        }
+
         nv_unique_ptr<nvat_http_options_t> http_options;
         nvat_http_options_t raw_http_options = nullptr;
-        err = nvat_http_options_create_default(&raw_http_options);
-        if (err != NVAT_RC_OK) {
-            return AttestOutput(err);
-        }
-        http_options.reset(&raw_http_options);
-        err = nvat_http_options_set_ca_bundle_path(
-            *(http_options.get()), evidence_verification_options.ca_bundle_path.c_str());
-        if (err != NVAT_RC_OK) {
-            return AttestOutput(err);
+        if (!offline_status) {
+            err = nvat_http_options_create_default(&raw_http_options);
+            if (err != NVAT_RC_OK) {
+                return AttestOutput(err);
+            }
+            http_options.reset(&raw_http_options);
+            err = nvat_http_options_set_ca_bundle_path(
+                *(http_options.get()), evidence_verification_options.ca_bundle_path.c_str());
+            if (err != NVAT_RC_OK) {
+                return AttestOutput(err);
+            }
         }
 
         nv_unique_ptr<nvat_attestation_ctx_t> ctx;
@@ -161,9 +210,11 @@ namespace nvattest {
         err = nvat_attestation_ctx_create(&raw_ctx);
         if (err != NVAT_RC_OK) return AttestOutput(err);
         ctx.reset(&raw_ctx);
-        err = nvat_attestation_ctx_set_default_http_options(*(ctx.get()), *(http_options.get()));
-        if (err != NVAT_RC_OK) {
-            return AttestOutput(err);
+        if (!offline_status) {
+            err = nvat_attestation_ctx_set_default_http_options(*(ctx.get()), *(http_options.get()));
+            if (err != NVAT_RC_OK) {
+                return AttestOutput(err);
+            }
         }
 
         nv_unique_ptr<nvat_evidence_policy_t> evidence_policy;
@@ -217,7 +268,7 @@ namespace nvattest {
             // default to NSCQ
         }
 
-        if (!evidence_verification_options.service_key.empty()) {
+        if (!offline_status && !evidence_verification_options.service_key.empty()) {
             err = nvat_attestation_ctx_set_service_key(*(ctx.get()), evidence_verification_options.service_key.c_str());
             if (err != NVAT_RC_OK) {
                 return AttestOutput(err);
@@ -228,7 +279,7 @@ namespace nvattest {
         if (evidence_verification_options.verifier == "local") {
             nv_unique_ptr<nvat_rim_store_t> rim_store;
             nvat_rim_store_t rim_store_raw = nullptr;
-            if (evidence_verification_options.rim_store == "remote") {
+            if (evidence_verification_options.rim_store == "remote" && !offline_status) {
                 auto rim_url = evidence_verification_options.rim_url.c_str();
                 auto service_key = evidence_verification_options.service_key.empty() ? nullptr : evidence_verification_options.service_key.c_str();
                 err = nvat_rim_store_create_remote(&rim_store_raw, rim_url, service_key, *(http_options.get()));
@@ -252,7 +303,33 @@ namespace nvattest {
             }
         }
 
-        if (!evidence_verification_options.ocsp_url.empty()) {
+        if (offline_status) {
+            std::string bundle;
+            err = read_status_proof_bundle(evidence_verification_options.ocsp_proof_bundle, bundle);
+            if (err != NVAT_RC_OK) {
+                return AttestOutput(err);
+            }
+            int64_t verification_time = 0;
+            err = parse_verification_time(evidence_verification_options.ocsp_verification_time, verification_time);
+            if (err != NVAT_RC_OK) {
+                return AttestOutput(err);
+            }
+            nv_unique_ptr<nvat_ocsp_client_t> ocsp_client;
+            nvat_ocsp_client_t ocsp_client_raw = nullptr;
+            err = nvat_ocsp_client_create_raw_proofs(
+                &ocsp_client_raw,
+                reinterpret_cast<const uint8_t*>(bundle.data()),
+                bundle.size(),
+                verification_time);
+            if (err != NVAT_RC_OK) {
+                return AttestOutput(err);
+            }
+            ocsp_client.reset(&ocsp_client_raw);
+            err = nvat_attestation_ctx_set_default_ocsp_client(*(ctx.get()), *(ocsp_client.get()));
+            if (err != NVAT_RC_OK) {
+                return AttestOutput(err);
+            }
+        } else if (!evidence_verification_options.ocsp_url.empty()) {
             std::string ocsp_base = evidence_verification_options.ocsp_url;
             nv_unique_ptr<nvat_ocsp_client_t> ocsp_client;
             nvat_ocsp_client_t ocsp_client_raw = nullptr;
@@ -268,7 +345,7 @@ namespace nvattest {
             }
         }
 
-        if (!evidence_verification_options.nras_url.empty()) {
+        if (!offline_status && !evidence_verification_options.nras_url.empty()) {
             std::string nras_base = evidence_verification_options.nras_url;
             // Ensure remote verifiers use the user-specified NRAS base URL
             setenv("NVAT_NRAS_BASE_URL", nras_base.c_str(), 1);

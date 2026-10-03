@@ -125,6 +125,49 @@ namespace nvattest {
             ->default_val(true);
     }
 
+    namespace {
+        // An option counts as given on the command line when it has a value
+        // other than the one its environment variable supplies. Environment
+        // defaults are simply unused in offline mode.
+        bool given_on_command_line(const CLI::App& app, const std::string& name, const char* envname) {
+            const CLI::Option* option = app.get_option_no_throw(name);
+            if (option == nullptr || option->count() == 0) {
+                return false;
+            }
+            const char* environment = envname == nullptr ? nullptr : std::getenv(envname);
+            return environment == nullptr || option->as<std::string>() != environment;
+        }
+    }
+
+    void validate_offline_status_options(const CLI::App& app, const EvidenceVerificationOptions& options) {
+        const std::string& time = options.ocsp_verification_time;
+        if (time.empty() || time.size() > 18
+            || time.find_first_not_of("0123456789") != std::string::npos
+            || time.find_first_not_of('0') == std::string::npos) {
+            throw CLI::ValidationError("--ocsp-verification-time",
+                "--ocsp-proof-bundle needs a positive decimal --ocsp-verification-time");
+        }
+        if (options.verifier != "local") {
+            throw CLI::ValidationError("--ocsp-proof-bundle", "requires --verifier local");
+        }
+        if (options.rim_store != "dir") {
+            throw CLI::ValidationError("--ocsp-proof-bundle", "requires --rim-store dir");
+        }
+        const std::pair<const char*, const char*> network_options[] = {
+            {"--ocsp-url", "NVAT_OCSP_BASE_URL"},
+            {"--rim-url", "NVAT_RIM_SERVICE_BASE_URL"},
+            {"--nras-url", "NVAT_NRAS_BASE_URL"},
+            {"--service-key", "NV_ATTESTATION_SERVICE_KEY"},
+            {"--ca-bundle", "NVAT_CA_BUNDLE"},
+        };
+        for (const auto& network_option : network_options) {
+            if (given_on_command_line(app, network_option.first, network_option.second)) {
+                throw CLI::ValidationError(network_option.first,
+                    "cannot be combined with --ocsp-proof-bundle, which contacts no service");
+            }
+        }
+    }
+
     void add_evidence_verification_options(
         CLI::App* app,
         EvidenceVerificationOptions& options,
@@ -155,10 +198,24 @@ namespace nvattest {
            ->default_val("");
         app->add_option("--ca-bundle", options.ca_bundle_path, "Path to a CA certificate bundle used for HTTPS requests")
             ->envname("NVAT_CA_BUNDLE");
+        app->add_option("--ocsp-proof-bundle", options.ocsp_proof_bundle,
+            "Offline status mode: path to a version 1 bundle of raw signed OCSP responses. "
+            "Requires --verifier local, --rim-store dir and --ocsp-verification-time; no OCSP, RIM or NRAS service is contacted")
+            ->check(CLI::ExistingFile);
+        app->add_option("--ocsp-verification-time", options.ocsp_verification_time,
+            "Offline status mode: the relying party's own time in seconds since the Unix epoch");
 
-        app->parse_complete_callback([&options, collection_options]() {
+        app->parse_complete_callback([app, &options, collection_options]() {
             if (collection_options != nullptr) {
                 validate_evidence_collection_options(*collection_options);
+            }
+            if (!options.ocsp_verification_time.empty() && !options.offline_status_proofs()) {
+                throw CLI::ValidationError("--ocsp-verification-time", "is only used with --ocsp-proof-bundle");
+            }
+            if (options.offline_status_proofs()) {
+                validate_offline_status_options(*app, options);
+                // Offline mode makes no HTTPS request, so it needs no CA bundle.
+                return;
             }
             nvat_http_options_t http_options = nullptr;
             nvat_rc_t rc = nvat_http_options_create_default(&http_options);

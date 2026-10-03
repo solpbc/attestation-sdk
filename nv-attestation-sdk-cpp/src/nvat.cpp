@@ -42,6 +42,7 @@
 #include "nv_attestation/gpu/evidence.h"
 #include "nv_attestation/switch/evidence.h"
 #include "nv_attestation/nv_ocsp.h"
+#include <limits>
 #include "nvat.h.in"
 
 using namespace nvattestation;
@@ -324,6 +325,38 @@ nvat_rc_t nvat_ocsp_client_create_default(nvat_ocsp_client_t* out_client, const 
     }
     
     auto client_ptr = make_unique<shared_ptr<IOcspHttpClient>>(make_shared<NvHttpOcspClient>(std::move(client)));
+    *out_client = nvat_ocsp_client_from_cpp(client_ptr.release());
+    return NVAT_RC_OK;
+    NVAT_C_API_END
+}
+
+nvat_rc_t nvat_ocsp_client_create_raw_proofs(nvat_ocsp_client_t* out_client, const uint8_t* bundle_der, size_t bundle_len, int64_t verification_time_unix) {
+    NVAT_C_API_BEGIN
+    if (out_client == nullptr) {
+        LOG_ERROR("out_client is null");
+        return NVAT_RC_BAD_ARGUMENT;
+    }
+    if (bundle_der == nullptr || bundle_len == 0) {
+        LOG_ERROR("bundle_der is empty");
+        return NVAT_RC_BAD_ARGUMENT;
+    }
+    if (bundle_len > RawProofOcspClient::MAX_BUNDLE_BYTES) {
+        LOG_ERROR("bundle_der is larger than " << RawProofOcspClient::MAX_BUNDLE_BYTES << " bytes");
+        return NVAT_RC_BAD_ARGUMENT;
+    }
+    if (verification_time_unix <= 0
+        || verification_time_unix > static_cast<int64_t>(std::numeric_limits<time_t>::max())) {
+        LOG_ERROR("verification_time_unix is out of range");
+        return NVAT_RC_BAD_ARGUMENT;
+    }
+    std::string bundle(reinterpret_cast<const char*>(bundle_der), bundle_len);
+    std::shared_ptr<RawProofOcspClient> client;
+    Error err = RawProofOcspClient::create_from_bundle(bundle, static_cast<time_t>(verification_time_unix), client);
+    if (err != Error::Ok) {
+        LOG_ERROR("Failed to create raw status proof OCSP client");
+        return nvat_rc_from_cpp(err);
+    }
+    auto client_ptr = make_unique<shared_ptr<IOcspHttpClient>>(std::static_pointer_cast<IOcspHttpClient>(client));
     *out_client = nvat_ocsp_client_from_cpp(client_ptr.release());
     return NVAT_RC_OK;
     NVAT_C_API_END

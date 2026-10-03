@@ -133,6 +133,7 @@ Error LocalSwitchVerifier::set_switch_evidence_claims(const SwitchEvidenceClaims
     out_serializable_claims.m_ar_cert_chain_claims.m_cert_ocsp_status = to_string(switch_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.status);
     out_serializable_claims.m_ar_cert_chain_claims.m_cert_revocation_reason = switch_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.revocation_reason;
     out_serializable_claims.m_ar_cert_chain_claims.m_ocsp_nonce_matches = switch_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.nonce_matches;
+    out_serializable_claims.m_ar_cert_chain_claims.m_ocsp_signed_age = make_signed_age_status(switch_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.signed_age, switch_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.verification_time, switch_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.status_deadline, switch_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.oldest_this_update, switch_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.covered_certificates);
     out_serializable_claims.m_ar_cert_chain_claims.m_ocsp_response_valid = switch_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.ocsp_response_valid;
 
     out_serializable_claims.m_ar_cert_chain_fwid_match = switch_evidence_claims.m_attestation_report_claims.m_fwid_match;
@@ -157,6 +158,7 @@ Error LocalSwitchVerifier::set_vbios_rim_claims(const RimDocument& vbios_rim, co
     out_serializable_claims.m_bios_rim_cert_chain.m_cert_ocsp_status = to_string(vbios_rim_claims.m_cert_chain_claims.ocsp_claims.status);
     out_serializable_claims.m_bios_rim_cert_chain.m_cert_revocation_reason = vbios_rim_claims.m_cert_chain_claims.ocsp_claims.revocation_reason;
     out_serializable_claims.m_bios_rim_cert_chain.m_ocsp_nonce_matches = vbios_rim_claims.m_cert_chain_claims.ocsp_claims.nonce_matches;
+    out_serializable_claims.m_bios_rim_cert_chain.m_ocsp_signed_age = make_signed_age_status(vbios_rim_claims.m_cert_chain_claims.ocsp_claims.signed_age, vbios_rim_claims.m_cert_chain_claims.ocsp_claims.verification_time, vbios_rim_claims.m_cert_chain_claims.ocsp_claims.status_deadline, vbios_rim_claims.m_cert_chain_claims.ocsp_claims.oldest_this_update, vbios_rim_claims.m_cert_chain_claims.ocsp_claims.covered_certificates);
     out_serializable_claims.m_bios_rim_cert_chain.m_ocsp_response_valid = vbios_rim_claims.m_cert_chain_claims.ocsp_claims.ocsp_response_valid;
 
     out_serializable_claims.m_bios_rim_signature_verified = vbios_rim_claims.m_signature_verified;

@@ -181,6 +181,7 @@ static const uint8_t NVDEC_STATUS_DISABLED = 0x55;  // NVDEC0 hardware disabled 
         out_serializable_claims.m_driver_rim_cert_chain.m_cert_revocation_reason = driver_rim_claims.m_cert_chain_claims.ocsp_claims.revocation_reason;
         out_serializable_claims.m_driver_rim_signature_verified = driver_rim_claims.m_signature_verified;
         out_serializable_claims.m_driver_rim_cert_chain.m_ocsp_nonce_matches = driver_rim_claims.m_cert_chain_claims.ocsp_claims.nonce_matches;
+        out_serializable_claims.m_driver_rim_cert_chain.m_ocsp_signed_age = make_signed_age_status(driver_rim_claims.m_cert_chain_claims.ocsp_claims.signed_age, driver_rim_claims.m_cert_chain_claims.ocsp_claims.verification_time, driver_rim_claims.m_cert_chain_claims.ocsp_claims.status_deadline, driver_rim_claims.m_cert_chain_claims.ocsp_claims.oldest_this_update, driver_rim_claims.m_cert_chain_claims.ocsp_claims.covered_certificates);
         out_serializable_claims.m_driver_rim_cert_chain.m_ocsp_response_valid = driver_rim_claims.m_cert_chain_claims.ocsp_claims.ocsp_response_valid;
 
         std::string oemid; 
@@ -209,6 +210,7 @@ static const uint8_t NVDEC_STATUS_DISABLED = 0x55;  // NVDEC0 hardware disabled 
         out_serializable_claims.m_vbios_rim_cert_chain.m_cert_revocation_reason = vbios_rim_claims.m_cert_chain_claims.ocsp_claims.revocation_reason;
         out_serializable_claims.m_vbios_rim_signature_verified = vbios_rim_claims.m_signature_verified;
         out_serializable_claims.m_vbios_rim_cert_chain.m_ocsp_nonce_matches = vbios_rim_claims.m_cert_chain_claims.ocsp_claims.nonce_matches;
+        out_serializable_claims.m_vbios_rim_cert_chain.m_ocsp_signed_age = make_signed_age_status(vbios_rim_claims.m_cert_chain_claims.ocsp_claims.signed_age, vbios_rim_claims.m_cert_chain_claims.ocsp_claims.verification_time, vbios_rim_claims.m_cert_chain_claims.ocsp_claims.status_deadline, vbios_rim_claims.m_cert_chain_claims.ocsp_claims.oldest_this_update, vbios_rim_claims.m_cert_chain_claims.ocsp_claims.covered_certificates);
         out_serializable_claims.m_vbios_rim_cert_chain.m_ocsp_response_valid = vbios_rim_claims.m_cert_chain_claims.ocsp_claims.ocsp_response_valid;
 
         return Error::Ok;
@@ -225,6 +227,7 @@ static const uint8_t NVDEC_STATUS_DISABLED = 0x55;  // NVDEC0 hardware disabled 
         out_serializable_claims.m_ar_cert_chain.m_cert_ocsp_status = to_string(gpu_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.status);
         out_serializable_claims.m_ar_cert_chain.m_cert_revocation_reason = gpu_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.revocation_reason;
         out_serializable_claims.m_ar_cert_chain.m_ocsp_nonce_matches = gpu_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.nonce_matches;
+        out_serializable_claims.m_ar_cert_chain.m_ocsp_signed_age = make_signed_age_status(gpu_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.signed_age, gpu_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.verification_time, gpu_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.status_deadline, gpu_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.oldest_this_update, gpu_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.covered_certificates);
         out_serializable_claims.m_ar_cert_chain.m_ocsp_response_valid = gpu_evidence_claims.m_attestation_report_claims.m_cert_chain_claims.ocsp_claims.ocsp_response_valid;
 
         out_serializable_claims.m_ar_cert_chain_fwid_match = gpu_evidence_claims.m_attestation_report_claims.m_fwid_match;

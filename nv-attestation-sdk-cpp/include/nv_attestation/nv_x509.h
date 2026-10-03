@@ -109,10 +109,23 @@ struct OCSPClaims {
      * will be true if the ocsp response is valid for all certs in the chain, else false
      */
     bool ocsp_response_valid;
+    /**
+     * sol: true when every status in the chain came from raw signed proofs
+     * judged by signed age (RawProofOcspClient) rather than a request nonce.
+     * The remaining fields are meaningful only then.
+     */
+    bool signed_age;
+    time_t verification_time;
+    /**
+     * min over the chain of min(nextUpdate, thisUpdate + 24 h).
+     */
+    time_t status_deadline;
+    time_t oldest_this_update;
+    size_t covered_certificates;
 
 
-    OCSPClaims(OCSPStatus status, const std::string& reason, bool nonce_matches, time_t ocsp_resp_expiration_time) : status(status), revocation_reason(std::make_shared<std::string>(reason)), nonce_matches(nonce_matches), ocsp_resp_expiration_time(ocsp_resp_expiration_time) {}
-    OCSPClaims() : status(OCSPStatus::UNDEFINED), revocation_reason(nullptr), nonce_matches(false), ocsp_resp_expiration_time(0), ocsp_response_valid(false) {}
+    OCSPClaims(OCSPStatus status, const std::string& reason, bool nonce_matches, time_t ocsp_resp_expiration_time) : status(status), revocation_reason(std::make_shared<std::string>(reason)), nonce_matches(nonce_matches), ocsp_resp_expiration_time(ocsp_resp_expiration_time), ocsp_response_valid(false), signed_age(false), verification_time(0), status_deadline(0), oldest_this_update(0), covered_certificates(0) {}
+    OCSPClaims() : status(OCSPStatus::UNDEFINED), revocation_reason(nullptr), nonce_matches(false), ocsp_resp_expiration_time(0), ocsp_response_valid(false), signed_age(false), verification_time(0), status_deadline(0), oldest_this_update(0), covered_certificates(0) {}
 };
 
 std::ostream& operator<<(std::ostream& os, const OCSPClaims& claims) ;

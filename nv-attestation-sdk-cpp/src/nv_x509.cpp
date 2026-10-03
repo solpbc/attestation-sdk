@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+#include <algorithm>
 #include <cstring>
 #include <curl/urlapi.h>
 #include <iostream>
@@ -567,7 +568,7 @@ Error X509CertChain::generate_ocsp_claims_for_path(const std::vector<nv_unique_p
         } else {
             out_ocsp_claims.nonce_matches = out_ocsp_claims.nonce_matches && ocsp_resp.nonce_matches;
         }
-        if (!ocsp_resp.nonce_matches) {
+        if (!ocsp_resp.nonce_matches && !ocsp_resp.signed_age) {
             LOG_WARN("OCSP nonce mismatch for cert: " << subject_idx << ": " << get_cert_subject_issuer_str(verified_path[subject_idx].get()));
         }
 
@@ -600,6 +601,32 @@ Error X509CertChain::generate_ocsp_claims_for_path(const std::vector<nv_unique_p
             }
         }
 
+        // sol: one chain is judged one way. A signed-age chain never reports a
+        // nonce match, and carries its own minimum deadline.
+        if (claims_initialized && out_ocsp_claims.signed_age != ocsp_resp.signed_age) {
+            LOG_ERROR("OCSP statuses in one certificate chain used different status modes");
+            return Error::OcspInvalidResponse;
+        }
+        out_ocsp_claims.signed_age = ocsp_resp.signed_age;
+        if (ocsp_resp.signed_age) {
+            if (ocsp_resp.nonce_matches) {
+                LOG_ERROR("A signed-age OCSP status must not report a nonce match");
+                return Error::OcspInvalidResponse;
+            }
+            if (!claims_initialized) {
+                out_ocsp_claims.verification_time = ocsp_resp.verification_time;
+                out_ocsp_claims.status_deadline = ocsp_resp.status_deadline;
+                out_ocsp_claims.oldest_this_update = ocsp_resp.thisupd;
+            } else {
+                if (out_ocsp_claims.verification_time != ocsp_resp.verification_time) {
+                    LOG_ERROR("OCSP statuses in one certificate chain used different verification times");
+                    return Error::OcspInvalidResponse;
+                }
+                out_ocsp_claims.status_deadline = std::min(out_ocsp_claims.status_deadline, ocsp_resp.status_deadline);
+                out_ocsp_claims.oldest_this_update = std::min(out_ocsp_claims.oldest_this_update, ocsp_resp.thisupd);
+            }
+        }
+        out_ocsp_claims.covered_certificates++;
 
         LOG_DEBUG("Generating expiration time claim");
         // The OCSP response expiration time is for this specific response.

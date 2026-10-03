@@ -34,6 +34,65 @@ namespace nvattestation {
  * @brief Represents certificate chain claims for attestation
  * 
  */
+/**
+ * @brief sol: signed-age status result for one certificate chain.
+ *
+ * Present only when the chain's revocation status came from raw signed OCSP
+ * proofs judged against an owner-supplied verification time. It is
+ * serialized as "x-sol-cert-ocsp-signed-age" beside a nonce-matches claim
+ * that is always false.
+ */
+class SerializableSignedAgeStatus {
+    public:
+    static constexpr int VERSION = 1;
+    int m_version;
+    int64_t m_verification_time_unix;
+    int64_t m_status_deadline_unix;
+    int64_t m_oldest_this_update_unix;
+    uint64_t m_covered_certificates;
+
+    SerializableSignedAgeStatus()
+        : m_version(VERSION)
+        , m_verification_time_unix(0)
+        , m_status_deadline_unix(0)
+        , m_oldest_this_update_unix(0)
+        , m_covered_certificates(0) {}
+};
+
+inline void to_json(nlohmann::json& j, const SerializableSignedAgeStatus& status) {
+    j["version"] = status.m_version;
+    j["mode"] = "signed-age";
+    j["verification_time_unix"] = status.m_verification_time_unix;
+    j["status_deadline_unix"] = status.m_status_deadline_unix;
+    j["oldest_this_update_unix"] = status.m_oldest_this_update_unix;
+    j["covered_certificates"] = status.m_covered_certificates;
+}
+
+inline void from_json(const nlohmann::json& j, SerializableSignedAgeStatus& out_status) {
+    out_status.m_version = j.at("version").get<int>();
+    out_status.m_verification_time_unix = j.at("verification_time_unix").get<int64_t>();
+    out_status.m_status_deadline_unix = j.at("status_deadline_unix").get<int64_t>();
+    out_status.m_oldest_this_update_unix = j.at("oldest_this_update_unix").get<int64_t>();
+    out_status.m_covered_certificates = j.at("covered_certificates").get<uint64_t>();
+}
+
+inline std::shared_ptr<SerializableSignedAgeStatus> make_signed_age_status(
+    bool signed_age,
+    int64_t verification_time,
+    int64_t status_deadline,
+    int64_t oldest_this_update,
+    uint64_t covered_certificates) {
+    if (!signed_age) {
+        return nullptr;
+    }
+    auto status = std::make_shared<SerializableSignedAgeStatus>();
+    status->m_verification_time_unix = verification_time;
+    status->m_status_deadline_unix = status_deadline;
+    status->m_oldest_this_update_unix = oldest_this_update;
+    status->m_covered_certificates = covered_certificates;
+    return status;
+}
+
 class SerializableCertChainClaims {
     public:
     std::string m_cert_expiration_date;
@@ -42,6 +101,7 @@ class SerializableCertChainClaims {
     std::shared_ptr<std::string> m_cert_revocation_reason;
     bool m_ocsp_nonce_matches;
     bool m_ocsp_response_valid;
+    std::shared_ptr<SerializableSignedAgeStatus> m_ocsp_signed_age;
 
     SerializableCertChainClaims() 
         : m_cert_expiration_date("")
@@ -49,7 +109,8 @@ class SerializableCertChainClaims {
         , m_cert_ocsp_status("")
         , m_cert_revocation_reason(nullptr)
         , m_ocsp_nonce_matches(false)
-        , m_ocsp_response_valid(false) {}
+        , m_ocsp_response_valid(false)
+        , m_ocsp_signed_age(nullptr) {}
 };
 
 /**
@@ -64,6 +125,9 @@ inline void to_json(nlohmann::json& j, const SerializableCertChainClaims& claims
     j["x-nvidia-cert-revocation-reason"] = serialize_optional_shared_ptr(claims.m_cert_revocation_reason.get());
     j["x-nvidia-cert-ocsp-nonce-matches"] = claims.m_ocsp_nonce_matches;
     j["x-nvidia-cert-ocsp-response-valid"] = claims.m_ocsp_response_valid;
+    if (claims.m_ocsp_signed_age) {
+        j["x-sol-cert-ocsp-signed-age"] = *claims.m_ocsp_signed_age;
+    }
 }
 
 /* @brief Deserializes SerializableCertChainClaims from JSON
@@ -89,6 +153,12 @@ inline void from_json(const nlohmann::json& j, SerializableCertChainClaims& out_
         out_claims.m_ocsp_response_valid = j.at("x-nvidia-cert-ocsp-response-valid").get<bool>();
     } else {
         out_claims.m_ocsp_response_valid = true;
+    }
+    if (j.contains("x-sol-cert-ocsp-signed-age")) {
+        out_claims.m_ocsp_signed_age = std::make_shared<SerializableSignedAgeStatus>(
+            j.at("x-sol-cert-ocsp-signed-age").get<SerializableSignedAgeStatus>());
+    } else {
+        out_claims.m_ocsp_signed_age = nullptr;
     }
 }
 
