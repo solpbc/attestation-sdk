@@ -74,6 +74,6 @@ These upstream files differ from the comparison base:
 - `nv-attestation-sdk-cpp/unit-tests/CMakeLists.txt`
 - `nv-attestation-sdk-cpp/unit-tests/nv_x509_test.cpp`
 
-In sol.5, files changed for verified-path coverage and offline status proofs carry `sol:` comments at the changed code.
+Some sol.5 changes carry `sol:` comments in the code; not every modified file does, so this list is the complete record.
 
 The lists cover files present at each source commit and its upstream base, with differing contents. Files added by sol pbc are outside this comparison. NVIDIA’s existing copyright and licence notices remain in the source.
