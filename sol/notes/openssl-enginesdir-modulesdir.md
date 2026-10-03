@@ -67,3 +67,16 @@ both published Linux `bin/nvattest` executables carry only
 release archives. The four `ENGINESDIR`/`MODULESDIR` build-path strings
 remain in the sol.4 aarch64 `libnvat.so`. Correct those paths in the
 next SDK release.
+
+## Corrected in 1.2.2-sol.5 (2026-10-03)
+
+The prefix stays in the build tree; the vendored build now overrides the two
+make variables instead. OpenSSL's generated Makefile defines
+`ENGINESDIR=$(libdir)/engines-3` and `MODULESDIR=$(libdir)/ossl-modules` and
+passes both into `LIB_CPPFLAGS`, so `make ENGINESDIR=/nvat-openssl/engines-3
+MODULESDIR=/nvat-openssl/ossl-modules` compiles the inert root in without
+touching `--prefix` or the pkg-config chain. Installation uses `install_dev`,
+which needs neither directory. The release gate refuses either build-tree
+root in an archived binary. A clean x86_64 CI build had zero
+`openssl-install` strings in `libnvat` and `nvattest`; each native release
+gate rechecks its own artifact.
