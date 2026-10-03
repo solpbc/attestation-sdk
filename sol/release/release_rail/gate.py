@@ -20,6 +20,10 @@ FORBIDDEN_OPENSSLDIR_PATHS = (
     b"openssl-install/private",
     b"openssl-install/ct_log_list.cnf",
 )
+FORBIDDEN_OPENSSL_MODULE_PATHS = (
+    b"openssl-install/lib/ossl-modules",
+    b"openssl-install/lib/engines-3",
+)
 _VERSION = re.compile(r"^(GLIBC|GLIBCXX|CXXABI)_([0-9]+(?:\.[0-9]+)*)$")
 _ELF_MACHINES = {"EM_X86_64": elf.EM_X86_64, "EM_AARCH64": elf.EM_AARCH64}
 
@@ -50,6 +54,9 @@ def _forbidden_strings(path: Path, data: bytes) -> None:
     for value in FORBIDDEN_OPENSSLDIR_PATHS:
         if value in data:
             raise GateError(f"{path}: build-tree openssldir path found: {value.decode()}")
+    for value in FORBIDDEN_OPENSSL_MODULE_PATHS:
+        if value in data:
+            raise GateError(f"{path}: build-tree OpenSSL module or engine root found: {value.decode()}")
 
 
 def gate_elf(path: Path, target: dict[str, Any], allowlist: list[str]) -> None:

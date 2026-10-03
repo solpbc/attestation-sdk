@@ -150,34 +150,50 @@ class GateTest(unittest.TestCase):
                         macho_allowlist,
                     )
 
-    def test_prefix_derived_ossl_modules_is_not_forbidden(self):
-        # Prep Q3's verbatim pre-fix MODULESDIR C-string. Do not generalize:
-        # an approximated path would weaken the proof that prefix-derived
-        # openssl-install strings do not trip FORBIDDEN_OPENSSLDIR_PATHS.
-        twin = (
+    def test_prefix_derived_module_and_engine_roots_are_forbidden(self):
+        # The verbatim pre-fix MODULESDIR C-string from a real build tree, and
+        # its ENGINESDIR sibling. Since sol.5 both name /nvat-openssl.
+        twins = (
             "/home/jer/.hopper/worktrees/6patvfem/build/"
-            "openssl-install/lib/ossl-modules"
+            "openssl-install/lib/ossl-modules",
+            "/src/build/release/openssl-install/lib/engines-3",
         )
         elf_target, elf_allowlist = self.target(authority.TARGET_IDS[0])
         macho_target, macho_allowlist = self.target(authority.TARGET_IDS[2])
-        with self.subTest(format="elf"):
-            gate.gate_file(
-                self.write(
-                    "ok.elf",
-                    fixtures.elf_fixture(elf.EM_X86_64, strings=(twin,)),
-                ),
-                elf_target,
-                elf_allowlist,
-            )
-        with self.subTest(format="macho"):
-            gate.gate_file(
-                self.write(
-                    "ok.macho",
-                    fixtures.macho_fixture(strings=(twin,)),
-                ),
-                macho_target,
-                macho_allowlist,
-            )
+        for twin in twins:
+            with self.subTest(format="elf", path=twin):
+                with self.assertRaisesRegex(
+                    gate.GateError, "build-tree OpenSSL module or engine root found"
+                ):
+                    gate.gate_file(
+                        self.write(
+                            "bad.elf",
+                            fixtures.elf_fixture(elf.EM_X86_64, strings=(twin,)),
+                        ),
+                        elf_target,
+                        elf_allowlist,
+                    )
+            with self.subTest(format="macho", path=twin):
+                with self.assertRaisesRegex(
+                    gate.GateError, "build-tree OpenSSL module or engine root found"
+                ):
+                    gate.gate_file(
+                        self.write(
+                            "bad.macho",
+                            fixtures.macho_fixture(strings=(twin,)),
+                        ),
+                        macho_target,
+                        macho_allowlist,
+                    )
+
+    def test_inert_module_and_engine_roots_are_allowed(self):
+        inert = ("/nvat-openssl/ossl-modules", "/nvat-openssl/engines-3")
+        elf_target, elf_allowlist = self.target(authority.TARGET_IDS[0])
+        gate.gate_file(
+            self.write("ok.elf", fixtures.elf_fixture(elf.EM_X86_64, strings=inert)),
+            elf_target,
+            elf_allowlist,
+        )
 
     def test_valid_macho_executable_and_library(self):
         target, allowlist = self.target(authority.TARGET_IDS[2])

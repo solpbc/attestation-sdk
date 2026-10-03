@@ -253,8 +253,17 @@ else()
       no-legacy     # Disable legacy provider (MD2, RC4, DES, etc.)
       no-engine     # Disable deprecated ENGINE API — unused with static linking
       no-dtls       # Disable DTLS — SDK uses TLS only, not UDP-based DTLS
+    # sol: ENGINESDIR and MODULESDIR are compiled-in dlopen roots that the
+    # Makefile derives from --prefix, which must stay in the build tree for the
+    # vendored pkg-config chain. Override both make variables so they name the
+    # same inert root as --openssldir, and install only headers, libraries and
+    # pkg-config files: with no-shared and no-engine there is nothing to load.
     BUILD_COMMAND ${NVAT_EP_ENV_COMMAND} make -j${CMAKE_BUILD_PARALLEL_LEVEL}
-    INSTALL_COMMAND ${NVAT_EP_ENV_COMMAND} make install_sw
+      ENGINESDIR=/nvat-openssl/engines-3
+      MODULESDIR=/nvat-openssl/ossl-modules
+    INSTALL_COMMAND ${NVAT_EP_ENV_COMMAND} make install_dev
+      ENGINESDIR=/nvat-openssl/engines-3
+      MODULESDIR=/nvat-openssl/ossl-modules
     BUILD_IN_SOURCE 1
   )
 
