@@ -345,7 +345,7 @@ nvat_rc_t nvat_ocsp_client_create_raw_proofs(nvat_ocsp_client_t* out_client, con
         return NVAT_RC_BAD_ARGUMENT;
     }
     if (verification_time_unix <= 0
-        || verification_time_unix > static_cast<int64_t>(std::numeric_limits<time_t>::max())) {
+        || verification_time_unix > static_cast<int64_t>(RawProofOcspClient::MAX_VERIFICATION_TIME)) {
         LOG_ERROR("verification_time_unix is out of range");
         return NVAT_RC_BAD_ARGUMENT;
     }

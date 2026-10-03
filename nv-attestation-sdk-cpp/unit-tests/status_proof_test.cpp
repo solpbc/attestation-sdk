@@ -199,6 +199,58 @@ TEST(RawProofTest, NonGoodStatusesAreReportedTruthfully) {
     }
 }
 
+namespace {
+
+std::string der_tlv(unsigned char tag, const std::string& value) {
+    std::string out(1, static_cast<char>(tag));
+    size_t length = value.size();
+    if (length < 0x80) {
+        out += static_cast<char>(length);
+    } else if (length < 0x100) {
+        out += '\x81';
+        out += static_cast<char>(length);
+    } else {
+        out += '\x82';
+        out += static_cast<char>((length >> 8) & 0xff);
+        out += static_cast<char>(length & 0xff);
+    }
+    return out + value;
+}
+
+// The same signed response, with one byte of padding after the
+// BasicOCSPResponse inside the responseBytes OCTET STRING. Every outer
+// length is correct, so only an inner canonicality check can see it.
+std::string inner_padded(const std::string& response_der) {
+    const unsigned char* cursor = reinterpret_cast<const unsigned char*>(response_der.data());
+    nv_unique_ptr<OCSP_RESPONSE> response(d2i_OCSP_RESPONSE(nullptr, &cursor, static_cast<long>(response_der.size())));
+    EXPECT_TRUE(response);
+    nv_unique_ptr<OCSP_BASICRESP> basic(OCSP_response_get1_basic(response.get()));
+    unsigned char* basic_der = nullptr;
+    int basic_len = i2d_OCSP_BASICRESP(basic.get(), &basic_der);
+    std::string inner(reinterpret_cast<char*>(basic_der), basic_len);
+    OPENSSL_free(basic_der);
+    const std::string basic_oid("\x06\x09\x2b\x06\x01\x05\x05\x07\x30\x01\x01", 11);
+    std::string bytes = der_tlv(0x30, basic_oid + der_tlv(0x04, inner + std::string(1, '\0')));
+    return der_tlv(0x30, std::string("\x0a\x01\x00", 3) + der_tlv(0xa0, bytes));
+}
+
+}  // namespace
+
+TEST(RawProofTest, PaddingInsideTheSignedResponseIsRefused) {
+    std::shared_ptr<RawProofOcspClient> client;
+    EXPECT_EQ(RawProofOcspClient::create({inner_padded(response("good_l4"))}, kT0, client), Error::OcspInvalidResponse);
+    // Control: the same construction without padding is the original bytes.
+    EXPECT_EQ(RawProofOcspClient::create({response("good_l4")}, kT0, client), Error::Ok);
+}
+
+TEST(RawProofTest, VerificationTimeIsBounded) {
+    std::shared_ptr<RawProofOcspClient> client;
+    EXPECT_EQ(RawProofOcspClient::create({response("good_l4")}, RawProofOcspClient::MAX_VERIFICATION_TIME + 1, client), Error::BadArgument);
+    std::string good = bundle("good");
+    nvat_ocsp_client_t c_client = nullptr;
+    EXPECT_EQ(nvat_ocsp_client_create_raw_proofs(&c_client, reinterpret_cast<const uint8_t*>(good.data()), good.size(), INT64_MAX), NVAT_RC_BAD_ARGUMENT);
+}
+
 TEST(RawProofTest, MalformedOrUnsuccessfulResponsesAreRefusedAtCreation) {
     for (const char* name : {"l4_trailing_byte", "try_later"}) {
         std::shared_ptr<RawProofOcspClient> client;

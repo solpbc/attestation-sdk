@@ -13,3 +13,7 @@ CertID request each, no owner data. `bundle.der` is the version 1 status-proof
 bundle of all eight, and `receipt.json` records each response's hash, size and
 signed times. Tests judge them at fixed verification times, so they do not
 age.
+
+The responder certificates inside these responses are checked against the
+current clock, not the test's verification time; the earliest expires on
+2028-10-30, after which these tests need a fresh capture.

@@ -84,6 +84,20 @@ Error OcspResponseVerifier::parse_basic_response(
                 LOG_ERROR("Could not extract basic response from OCSP response: " << get_openssl_error());
                 return Error::OcspInvalidResponse;
             }
+            // sol: the outer check above cannot see inside the responseBytes
+            // OCTET STRING. Re-encode the whole response from the parsed
+            // basic response so a non-canonical or padded inner value is
+            // refused too.
+            nv_unique_ptr<OCSP_RESPONSE> rebuilt(OCSP_response_create(OCSP_RESPONSE_STATUS_SUCCESSFUL, basic_resp.get()));
+            unsigned char* rebuilt_der = nullptr;
+            int rebuilt_len = rebuilt ? i2d_OCSP_RESPONSE(rebuilt.get(), &rebuilt_der) : -1;
+            bool inner_canonical = rebuilt_len > 0 && static_cast<size_t>(rebuilt_len) == der_len
+                && std::memcmp(rebuilt_der, der, der_len) == 0;
+            OPENSSL_free(rebuilt_der);
+            if (!inner_canonical) {
+                LOG_ERROR("OCSP basic response is not canonical DER");
+                return Error::OcspInvalidResponse;
+            }
             out_basic_response = std::move(basic_resp);
             return Error::Ok;
         }
@@ -498,8 +512,8 @@ Error RawProofOcspClient::create(
         LOG_ERROR("Raw status proofs must contain between 1 and " << MAX_RESPONSES << " responses");
         return Error::OcspInvalidResponse;
     }
-    if (verification_time <= 0) {
-        LOG_ERROR("Raw status proofs need a positive verification time");
+    if (verification_time <= 0 || verification_time > MAX_VERIFICATION_TIME) {
+        LOG_ERROR("Raw status proofs need a verification time between 1970 and 9999");
         return Error::BadArgument;
     }
     auto client = std::make_shared<RawProofOcspClient>();
@@ -590,7 +604,7 @@ Error RawProofOcspClient::get_ocsp_response(
         LOG_ERROR("Raw status proof nextUpdate is not after thisUpdate");
         return Error::OcspInvalidResponse;
     }
-    if (this_update > m_verification_time + FUTURE_TOLERANCE_SECONDS) {
+    if (this_update - FUTURE_TOLERANCE_SECONDS > m_verification_time) {
         LOG_ERROR("Raw status proof thisUpdate is more than " << FUTURE_TOLERANCE_SECONDS
                 << " seconds after the verification time");
         return Error::OcspInvalidResponse;

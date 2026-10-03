@@ -179,6 +179,8 @@ class RawProofOcspClient : public IOcspHttpClient {
 public:
     static constexpr time_t MAX_SIGNED_AGE_SECONDS = 86400;
     static constexpr time_t FUTURE_TOLERANCE_SECONDS = 60;
+    // 9999-12-31T23:59:59Z; keeps every deadline sum far from time_t overflow.
+    static constexpr time_t MAX_VERIFICATION_TIME = 253402300799;
     // The bundle codec and its limits are the journal's published RA-TLS
     // status-proof extension contract, version 1.
     static constexpr long BUNDLE_VERSION = 1;
