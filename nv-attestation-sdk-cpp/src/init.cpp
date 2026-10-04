@@ -34,6 +34,10 @@
 #include "nv_attestation/log.h"
 #include "nv_attestation/gpu/nvml_client.h"
 #include "nv_attestation/switch/nscq_client.h"
+#ifdef _WIN32
+#include <xmlsec/openssl/crypto.h>
+#include "nv_attestation/windows_compat.h"
+#endif
 
 namespace nvattestation {
 
@@ -84,6 +88,21 @@ Error handle_init_xmlsec() {
         LOG_ERROR("xmlsec-crypto initialization failed");
         return Error::XmlInitFailed;
     }
+#ifdef _WIN32
+    // sol: the Windows OpenSSL build has no default certificate directory, so
+    // xmlsec's default X509 store would fail to initialize. Name a folder
+    // inside this executable's own directory that the payload never creates:
+    // it has the same writers as the executable, and nothing outside the
+    // installation becomes a trust root. OpenSSL splits directory lists on
+    // ';', so a path containing one is refused rather than split.
+    const std::string trusted_certs_folder = nvat_unused_trusted_certs_folder();
+    if (trusted_certs_folder.empty()
+        || trusted_certs_folder.find(';') != std::string::npos
+        || xmlSecOpenSSLSetDefaultTrustedCertsFolder(BAD_CAST trusted_certs_folder.c_str()) < 0) {
+        LOG_ERROR("Failed to set the xmlsec trusted certificates folder");
+        return Error::XmlInitFailed;
+    }
+#endif
     return Error::Ok;
 }
 

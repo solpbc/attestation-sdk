@@ -138,6 +138,34 @@ inline time_t timegm(struct tm* value) {
         + static_cast<long long>(value->tm_min) * 60 + value->tm_sec);
 }
 
+// UTF-8 path of a folder inside the running executable's directory that the
+// verifier payload never creates. Empty on failure.
+inline std::string nvat_unused_trusted_certs_folder() {
+    std::wstring module(32768, L'\0');
+    const DWORD length = GetModuleFileNameW(nullptr, &module[0], static_cast<DWORD>(module.size()));
+    if (length == 0 || length >= module.size()) {
+        return std::string();
+    }
+    module.resize(length);
+    const size_t separator = module.find_last_of(L"\\/");
+    if (separator == std::wstring::npos) {
+        return std::string();
+    }
+    const std::wstring folder = module.substr(0, separator) + L"\\nvat-no-default-certs";
+    const int bytes = WideCharToMultiByte(
+        CP_UTF8, WC_ERR_INVALID_CHARS, folder.data(), static_cast<int>(folder.size()), nullptr, 0, nullptr, nullptr);
+    if (bytes <= 0) {
+        return std::string();
+    }
+    std::string utf8(static_cast<size_t>(bytes), '\0');
+    if (WideCharToMultiByte(
+            CP_UTF8, WC_ERR_INVALID_CHARS, folder.data(), static_cast<int>(folder.size()), &utf8[0], bytes, nullptr, nullptr)
+        != bytes) {
+        return std::string();
+    }
+    return utf8;
+}
+
 #define RTLD_LAZY 0x1
 #define RTLD_LOCAL 0x0
 
