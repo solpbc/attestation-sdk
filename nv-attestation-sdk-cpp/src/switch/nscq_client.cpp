@@ -19,7 +19,11 @@
 #include <cstring>
 #include <vector>
 #include <mutex>
+#ifdef _WIN32
+#include "nv_attestation/windows_compat.h"
+#else
 #include <dlfcn.h>
+#endif
 
 #include "nv_attestation/log.h"
 #include "nv_attestation/error.h"

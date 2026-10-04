@@ -82,6 +82,10 @@ corrosion_import_crate(
   FEATURES "regorus/semver"
   CRATE_TYPES "staticlib"
 )
+if(WIN32)
+  # The Windows build installs nothing from crates.io beyond the copied lock.
+  corrosion_set_cargo_flags(regorus_ffi --locked)
+endif()
 
 if (ENABLE_SCCACHE)
   corrosion_set_env_vars(regorus_ffi "RUSTC_WRAPPER=${SCCACHE}")
@@ -109,7 +113,9 @@ target_include_directories(own-jwt-cpp
     INTERFACE ${jwt-cpp_SOURCE_DIR}/include)
 # jwt-cpp is advertised as a c++11 library. but it somehow uses c++17 features,
 # but it should work with c++14 also. so disable this warning.
-target_compile_options(own-jwt-cpp INTERFACE -Wno-c++17-extensions)
+if(NOT MSVC)
+  target_compile_options(own-jwt-cpp INTERFACE -Wno-c++17-extensions)
+endif()
 
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa EXCLUDE_FROM_ALL)
 FetchContent_MakeAvailable(json)
@@ -163,7 +169,11 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ${CMAKE_POSITION_INDEPENDENT_CODE_SAVED})
 
 option(USE_SYSTEM_DEPS "Use system-installed OpenSSL, curl, and xmlsec instead of building from source" OFF)
 
-if(USE_SYSTEM_DEPS)
+if(WIN32)
+  # Windows links static dependencies built beforehand from the same pinned
+  # sources by sol/windows/build.ps1.
+  include("${CMAKE_CURRENT_LIST_DIR}/cmake/nvat_windows_deps.cmake")
+elseif(USE_SYSTEM_DEPS)
   # Use system-installed packages (requires libssl-dev, libcurl4-openssl-dev, libxmlsec1-dev)
   find_package(OpenSSL REQUIRED)
   find_package(CURL REQUIRED)
@@ -397,6 +407,10 @@ endif()
 
 find_package(ZLIB REQUIRED)
 
+if(MSVC)
+  include("${CMAKE_CURRENT_LIST_DIR}/cmake/nvat_msvc_options.cmake")
+  nvat_add_msvc_compile_options()
+else()
 add_compile_options(-Wall -Wextra -Wpedantic -pedantic)
 if (CMAKE_VERSION VERSION_LESS 3.24.0 AND CMAKE_COMPILE_WARNING_AS_ERROR)
   add_compile_options(-Werror)
@@ -404,6 +418,7 @@ endif()
 # TODO: Remove this and handle problems before GA.
 #       Unused params and variables natural during development.
 add_compile_options(-Wno-unused -Wno-unused-parameter)
+endif()
 
 # Add debug flags if Debug build or any sanitizer is used
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR (SANITIZER AND NOT SANITIZER STREQUAL "OFF"))
@@ -544,12 +559,17 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/include/nvat.h"
   COMPONENT Development
 )
 
+# The Windows build produces the command-line verifier only. Its dependencies
+# are imported static archives that no installed SDK package could carry, so
+# it exports no CMake development package.
+if(NOT WIN32)
 install(EXPORT nvatTargets
   FILE nvatTargets.cmake
   NAMESPACE nvat::
   DESTINATION ${CMAKE_INSTALL_DATADIR}/cmake/nvat
   COMPONENT Development
 )
+endif()
 
 install(FILES
     cmake/FindLibXml2.cmake

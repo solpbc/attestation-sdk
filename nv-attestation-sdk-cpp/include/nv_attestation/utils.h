@@ -29,7 +29,14 @@
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <errno.h>
+#ifdef _WIN32
+#include "nv_attestation/windows_compat.h"
+// Opens files through their UTF-16 path on Windows.
+#define NVAT_NATIVE_PATH(path) nvat_widen_path(path)
+#else
 #include <dlfcn.h>
+#define NVAT_NATIVE_PATH(path) (path)
+#endif
 #include "error.h"
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -48,7 +55,7 @@ const size_t MIN_VALID_NONCE_LEN = 32;
  * @return Error::Ok on success, Error::InternalError on failure.
  */
 inline Error readFileIntoString(const std::string& path, std::string& out_content) {
-    std::ifstream ifs(path);
+    std::ifstream ifs(NVAT_NATIVE_PATH(path));
     if (!ifs) {
         LOG_ERROR("Could not open file: " << path);
         return Error::InternalError;
@@ -60,16 +67,26 @@ inline Error readFileIntoString(const std::string& path, std::string& out_conten
 // TODO(p1): replace all path_* funcs with c++ stdlib in c++17
 
 inline bool path_is_directory(const std::string& path) {
+#ifdef _WIN32
+    struct _stat64 path_stat;
+    if (_wstat64(nvat_widen_path(path).c_str(), &path_stat) != 0) {
+#else
     struct stat path_stat;
     if (stat(path.c_str(), &path_stat) != 0) {
+#endif
         return false;
     }
     return S_ISDIR(path_stat.st_mode);
 }
 
 inline bool path_exists(const std::string& path) {
+#ifdef _WIN32
+    struct _stat64 path_stat;
+    return _wstat64(nvat_widen_path(path).c_str(), &path_stat) == 0;
+#else
     struct stat path_stat;
     return stat(path.c_str(), &path_stat) == 0;
+#endif
 }
 
 inline std::string path_join(const std::string& path1, const std::string& path2) {

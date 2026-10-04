@@ -30,7 +30,41 @@
 #include "spdlog/sinks/stdout_sinks.h"
 
 
+#ifdef NVAT_VERIFICATION_ONLY
+// sol: a verification-only build appraises evidence files and never collects
+// evidence from local hardware, so it refuses any request that would.
+static bool requests_hardware_collection(
+    const CLI::App* attest_subcommand,
+    const CLI::App* collect_evidence_subcommand,
+    const nvattest::EvidenceCollectionOptions& collection,
+    const nvattest::EvidenceVerificationOptions& verification) {
+    if (collect_evidence_subcommand->parsed()) {
+        return true;
+    }
+    if (!attest_subcommand->parsed()) {
+        return false;
+    }
+    if (verification.verifier != "local") {
+        return true;
+    }
+    if (collection.device == "gpu") {
+        return collection.gpu_evidence_source != "file";
+    }
+    if (collection.device == "nvswitch") {
+        return collection.switch_evidence_source != "file";
+    }
+    return true;
+}
+#endif
+
 int main(int argc, char** argv) {
+
+#ifdef _WIN32
+    // sol: CLI11 converts the UTF-16 command line to UTF-8 so non-ASCII paths
+    // survive regardless of the process code page.
+    CLI::App utf8_arguments;
+    argv = utf8_arguments.ensure_utf8(argv);
+#endif
 
     CLI::App app{"NVIDIA attestation CLI for collecting evidence and verifying device integrity"};
 
@@ -47,6 +81,20 @@ int main(int argc, char** argv) {
 
     CLI11_PARSE(app, argc, argv);
 
+#ifdef NVAT_VERIFICATION_ONLY
+    if (requests_hardware_collection(
+            attest_subcommand,
+            collect_evidence_subcommand,
+            evidence_collection_options,
+            evidence_verification_options)) {
+        std::cout << "{\"result_code\":" << NVAT_RC_FEATURE_NOT_ENABLED
+                  << ",\"result_message\":\"this build verifies evidence files locally; "
+                     "hardware evidence collection and remote verification are not available\"}"
+                  << std::endl;
+        return NVAT_RC_FEATURE_NOT_ENABLED;
+    }
+#endif
+
     nvattest::CliLogger logger(common_options.get_log_level());
     logger.install();
 
@@ -54,7 +102,14 @@ int main(int argc, char** argv) {
     if (version_subcommand->parsed()) {
         return nvattest::handle_version_subcommand();
     } else if (attest_subcommand->parsed()) {
-        return nvattest::handle_attest_subcommand(logger, evidence_collection_options, evidence_verification_options, evidence_policy_options, common_options);
+        const int result = nvattest::handle_attest_subcommand(logger, evidence_collection_options, evidence_verification_options, evidence_policy_options, common_options);
+#ifdef _WIN32
+        // sol: report the same eight-bit process status as POSIX builds; the
+        // full result code is in the JSON output.
+        return result & 0xff;
+#else
+        return result;
+#endif
     } else if (collect_evidence_subcommand->parsed()) {
         return nvattest::handle_collect_evidence_subcommand(logger, evidence_collection_options, common_options);
     } else {

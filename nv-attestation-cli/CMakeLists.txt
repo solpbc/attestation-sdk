@@ -11,10 +11,34 @@ nvat_validate_apple_architecture()
 option(BUILD_TESTING "Build tests" OFF)
 option(USE_SYSTEM_NVAT "Compile and link to the system nvat library. If OFF, nvat will be built from source." OFF)
 
-set(CMAKE_CXX_STANDARD 14)
+if(WIN32)
+  # jwt-cpp needs C++17 under MSVC; GCC and Clang accept it at C++14.
+  set(CMAKE_CXX_STANDARD 17)
+else()
+  set(CMAKE_CXX_STANDARD 14)
+endif()
 set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
 
+if(WIN32)
+  set(_NVAT_VERIFICATION_ONLY_DEFAULT ON)
+else()
+  set(_NVAT_VERIFICATION_ONLY_DEFAULT OFF)
+endif()
+option(NVAT_VERIFICATION_ONLY
+  "Build a verifier for evidence files that refuses hardware evidence collection"
+  ${_NVAT_VERIFICATION_ONLY_DEFAULT})
+if(WIN32 AND NOT NVAT_VERIFICATION_ONLY)
+  message(FATAL_ERROR
+    "Windows builds are verification-only: the hardware evidence collectors "
+    "are not available on Windows")
+endif()
+
+if(MSVC)
+  include("${CMAKE_CURRENT_LIST_DIR}/../nv-attestation-sdk-cpp/cmake/nvat_msvc_options.cmake")
+  nvat_add_msvc_compile_options()
+else()
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O0")
+endif()
 
 include(CTest)
 include(GNUInstallDirs)
@@ -112,6 +136,9 @@ target_link_libraries(nvattest PRIVATE
     nlohmann_json::nlohmann_json
     CLI11::CLI11
 )
+if(NVAT_VERIFICATION_ONLY)
+    target_compile_definitions(nvattest PRIVATE NVAT_VERIFICATION_ONLY=1)
+endif()
 if(APPLE)
     # Authored and statically gated, but not natively verified on the Linux lode.
     set_target_properties(nvattest PROPERTIES
@@ -133,6 +160,16 @@ nvat_target_include_pinned_logging_headers(
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}
 )
+
+if(WIN32)
+    # The Windows build carries its own Gregorian UTC conversion; this checks
+    # it against fixed vectors (sol/windows/tests/utc-vectors.json).
+    add_executable(nvat_windows_utc_test
+        ${CMAKE_CURRENT_SOURCE_DIR}/../sol/windows/tests/utc_test.cpp)
+    target_link_libraries(nvat_windows_utc_test PRIVATE nlohmann_json::nlohmann_json)
+    target_include_directories(nvat_windows_utc_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../nv-attestation-sdk-cpp/include)
+endif()
 
 if(BUILD_TESTING)
     enable_testing()

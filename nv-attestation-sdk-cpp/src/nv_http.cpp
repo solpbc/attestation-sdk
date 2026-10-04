@@ -24,7 +24,9 @@
 #include <thread>
 #include <chrono>
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 #include "nv_attestation/nv_http.h"
 #include "nv_attestation/error.h"
@@ -46,11 +48,20 @@ namespace nvattestation {
         }};
 
         bool is_readable_regular_file(const std::string& path) {
+#ifdef _WIN32
+            const std::wstring wide_path = nvat_widen_path(path);
+            struct _stat64 path_stat;
+            return !wide_path.empty()
+                && _wstat64(wide_path.c_str(), &path_stat) == 0
+                && S_ISREG(path_stat.st_mode)
+                && _waccess(wide_path.c_str(), R_OK) == 0;
+#else
             struct stat path_stat;
             return !path.empty()
                 && stat(path.c_str(), &path_stat) == 0
                 && S_ISREG(path_stat.st_mode)
                 && access(path.c_str(), R_OK) == 0;
+#endif
         }
 
         const std::string& compiled_default_ca_bundle_path() {
@@ -199,7 +210,29 @@ namespace nvattestation {
         curl_easy_setopt(curl_handle.get(), CURLOPT_WRITEDATA, &out_response);
         curl_easy_setopt(curl_handle.get(), CURLOPT_CONNECTTIMEOUT_MS, m_options.connection_timeout_ms);
         curl_easy_setopt(curl_handle.get(), CURLOPT_TIMEOUT_MS, m_options.request_timeout_ms);
+#ifdef _WIN32
+        // libcurl opens CURLOPT_CAINFO with the narrow C runtime, which cannot
+        // name every UTF-8 path on Windows. Pass the authoritative bundle's
+        // bytes instead, read through its UTF-16 path.
+        std::string ca_bundle_contents;
+        if (readFileIntoString(m_options.ca_bundle_path, ca_bundle_contents) != Error::Ok
+            || ca_bundle_contents.empty()) {
+            LOG_ERROR(ca_bundle_resolution_error_message(
+                m_options.ca_bundle_path,
+                m_options.ca_bundle_path_tier));
+            return Error::InternalError;
+        }
+        curl_blob ca_bundle_blob{
+            const_cast<char*>(ca_bundle_contents.data()),
+            ca_bundle_contents.size(),
+            CURL_BLOB_COPY};
+        if (curl_easy_setopt(curl_handle.get(), CURLOPT_CAINFO_BLOB, &ca_bundle_blob) != CURLE_OK) {
+            LOG_ERROR("Failed to set the CA bundle for the HTTPS request");
+            return Error::InternalError;
+        }
+#else
         curl_easy_setopt(curl_handle.get(), CURLOPT_CAINFO, m_options.ca_bundle_path.c_str());
+#endif
 
         curl_easy_setopt(curl_handle.get(), CURLOPT_URL, request.url.c_str());
 

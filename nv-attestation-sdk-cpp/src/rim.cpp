@@ -78,7 +78,7 @@ Error RimDocument::create_from_rim_data(const std::string &rim_data, RimDocument
 }
 
 Error RimDocument::create_from_file(const std::string &rim_path, RimDocument& out_rim_document) {
-    std::ifstream file(rim_path);
+    std::ifstream file(NVAT_NATIVE_PATH(rim_path));
     std::string rim_data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     return create_from_rim_data(rim_data, out_rim_document);
 }

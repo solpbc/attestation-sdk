@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "comment": "Pinned inputs for the native Windows verifier build. The five library archives are the same coordinates the POSIX build declares; sol/release/tests/test_windows_inputs.py holds them equal.",
+  "sources": [
+    {"name": "openssl-3.6.1.tar.gz", "dir": "openssl-3.6.1", "url": "https://github.com/openssl/openssl/releases/download/openssl-3.6.1/openssl-3.6.1.tar.gz", "sha256": "b1bfedcd5b289ff22aee87c9d600f515767ebf45f77168cb6d64f231f518a82e"},
+    {"name": "libxml2-2.11.9.tar.xz", "dir": "libxml2-2.11.9", "url": "https://download.gnome.org/sources/libxml2/2.11/libxml2-2.11.9.tar.xz", "sha256": "780157a1efdb57188ec474dca87acaee67a3a839c2525b2214d318228451809f"},
+    {"name": "xmlsec1-1.2.39.tar.gz", "dir": "xmlsec1-1.2.39", "url": "https://github.com/lsh123/xmlsec/releases/download/xmlsec-1_2_39/xmlsec1-1.2.39.tar.gz", "sha256": "15f2f55ea5968e578fcd24b3b427e553876c86c147dc7f03923e98fc2768a1fa"},
+    {"name": "curl-7.88.1.tar.gz", "dir": "curl-7.88.1", "url": "https://github.com/curl/curl/releases/download/curl-7_88_1/curl-7.88.1.tar.gz", "sha256": "cdb38b72e36bc5d33d5b8810f8018ece1baa29a8f215b4495e495ded82bbf3c7"},
+    {"name": "zlib-1.3.1.tar.gz", "dir": "zlib-1.3.1", "url": "https://zlib.net/fossils/zlib-1.3.1.tar.gz", "sha256": "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"}
+  ],
+  "build_tools": [
+    {"name": "strawberry-perl-5.40.0.1-64bit-portable.zip", "dir": "perl", "url": "https://github.com/StrawberryPerl/Perl-Dist-Strawberry/releases/download/SP_54001_64bit_UCRT/strawberry-perl-5.40.0.1-64bit-portable.zip", "sha256": "754f3e2a8e473dc68d1540c7802fb166a025f35ef18960c4564a31f8b5933907", "purpose": "OpenSSL's Configure; not shipped"}
+  ],
+  "msvc_runtime": ["msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"]
+}

@@ -20,7 +20,11 @@
 #include <vector>
 #include <memory>
 #include <mutex>
+#ifdef _WIN32
+#include "nv_attestation/windows_compat.h"
+#else
 #include <dlfcn.h>
+#endif
 
 #include <openssl/x509.h>
 #include <openssl/pem.h>

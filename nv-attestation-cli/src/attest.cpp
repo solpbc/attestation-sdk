@@ -22,6 +22,9 @@
 #include <string>
 #include <set>
 #include <cstdlib>
+#ifdef _WIN32
+#include "CLI/CLI.hpp"
+#endif
 
 #include "attest.h"
 #include "nvat.h"
@@ -104,7 +107,11 @@ namespace nvattest {
             return NVAT_RC_OK;
         }
 
+#ifdef _WIN32
+        std::ifstream file(CLI::widen(relying_party_policy_filename));
+#else
         std::ifstream file(relying_party_policy_filename);
+#endif
         if (!file) {
             std::cerr << "Failed to open relying party policy file: " << relying_party_policy_filename << std::endl;
             return NVAT_RC_BAD_ARGUMENT;
@@ -137,7 +144,11 @@ namespace nvattest {
      */
     static nvat_rc_t read_status_proof_bundle(const std::string& path, std::string& out_bundle) {
         constexpr size_t MAX_BUNDLE_BYTES = 16384;
+#ifdef _WIN32
+        std::ifstream file(CLI::widen(path), std::ios::binary);
+#else
         std::ifstream file(path, std::ios::binary);
+#endif
         if (!file) {
             SPDLOG_ERROR("Failed to open status proof bundle: {}", path);
             return NVAT_RC_BAD_ARGUMENT;
@@ -348,7 +359,11 @@ namespace nvattest {
         if (!offline_status && !evidence_verification_options.nras_url.empty()) {
             std::string nras_base = evidence_verification_options.nras_url;
             // Ensure remote verifiers use the user-specified NRAS base URL
+#ifdef _WIN32
+            _putenv_s("NVAT_NRAS_BASE_URL", nras_base.c_str());
+#else
             setenv("NVAT_NRAS_BASE_URL", nras_base.c_str(), 1);
+#endif
         }
 
         err = set_relying_party_policy(*(ctx.get()), evidence_verification_options.relying_party_policy);

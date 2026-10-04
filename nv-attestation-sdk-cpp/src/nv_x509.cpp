@@ -75,7 +75,7 @@ std::string X509CertChain::to_string(FWIDType fwid_type) {
 
 // Function to create an X509 object from a certificate file path
 nv_unique_ptr<X509> x509_from_cert_path(const std::string &path) {
-    std::ifstream cert_file_stream(path);
+    std::ifstream cert_file_stream(NVAT_NATIVE_PATH(path));
     if (!cert_file_stream.is_open()) {
         LOG_ERROR("Error: unable to open certificate file: " << path);
         return nullptr;
