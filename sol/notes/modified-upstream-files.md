@@ -77,3 +77,8 @@ These upstream files differ from the comparison base:
 Some sol.5 changes carry `sol:` comments in the code; not every modified file does, so this list is the complete record.
 
 The lists cover files present at each source commit and its upstream base, with differing contents. Files added by sol pbc are outside this comparison. NVIDIA’s existing copyright and licence notices remain in the source.
+
+## Since sol.5, on `main`
+
+Every upstream file that differs from the upstream base now carries `Modified by sol pbc.` beside its licence identifier, including the sol.5 files listed above that lacked one and the files the native Windows build changed (`nv-attestation-cli/src/main.cpp`, `include/nv_attestation/utils.h`, `src/init.cpp`, `src/rim.cpp`, and the three collector sources). The next revision's list is taken from its own source commit.
+
