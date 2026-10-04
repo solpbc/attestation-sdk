@@ -21,7 +21,10 @@ function(nvat_add_msvc_compile_options)
   #   and are not held to this project's warning policy.
   # /guard:cf and /Qspectre are not used: the dependency archives are built
   #   without them, so they would protect only part of the image.
-  add_compile_options(/utf-8 /permissive- /Zc:__cplusplus /W3
+  # /wd4267: size_t narrowing is MSVC's -Wconversion family, which the POSIX
+  #   policy (-Wall -Wextra -Wpedantic) does not enable either; the SDK's
+  #   upstream sources trip it in six places.
+  add_compile_options(/utf-8 /permissive- /Zc:__cplusplus /W3 /wd4267
     /external:anglebrackets /external:W0)
   add_compile_definitions(
     WIN32_LEAN_AND_MEAN

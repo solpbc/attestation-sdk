@@ -38,8 +38,12 @@ $build = Join-Path $Root 'build'
 $dist = Join-Path $Root 'dist\nvattest'
 New-Item -ItemType Directory -Force $downloads, $src | Out-Null
 
+# Native tools report progress on stderr. Windows PowerShell turns redirected
+# native stderr into error records, so judge them by exit code alone.
 function Invoke-Checked([string]$what, [scriptblock]$block) {
-    & $block
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $block } finally { $ErrorActionPreference = $saved }
     if ($LASTEXITCODE -ne 0) { throw "$what failed with exit code $LASTEXITCODE" }
 }
 
