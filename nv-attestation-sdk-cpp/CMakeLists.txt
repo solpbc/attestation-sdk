@@ -84,7 +84,11 @@ corrosion_import_crate(
 )
 if(WIN32)
   # The Windows build installs nothing from crates.io beyond the copied lock.
-  corrosion_set_cargo_flags(regorus_ffi --locked)
+  if(NVAT_OFFLINE_BUILD)
+    corrosion_set_cargo_flags(regorus_ffi --frozen --offline)
+  else()
+    corrosion_set_cargo_flags(regorus_ffi --locked)
+  endif()
 endif()
 
 if (ENABLE_SCCACHE)

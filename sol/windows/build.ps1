@@ -18,12 +18,15 @@
 #
 # OpenSSL is configured with -DOSSL_WINCTX, so its configuration, engine and
 # provider-module directories come only from an administrator-owned registry
-# key that sol pbc never creates. Without that key OpenSSL loads no
-# configuration file and no module from any path a standard user can create.
+# key that this build never creates. Callers must also clear OPENSSL_CONF and
+# OPENSSL_MODULES to prevent environment-selected configuration or modules.
 
 param(
     [string]$Root = 'C:\nvb',
-    [switch]$ReuseDependencies
+    [switch]$ReuseDependencies,
+    [string]$OfflineBundle,
+    [ValidatePattern('^$|^[0-9a-f]{64}$')]
+    [string]$OfflineManifestSha256
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,6 +39,11 @@ $src = Join-Path $Root 'src'
 $deps = Join-Path $Root 'deps'
 $build = Join-Path $Root 'build'
 $dist = Join-Path $Root 'dist\nvattest'
+if ($OfflineBundle) {
+    if ($ReuseDependencies) { throw 'offline builds cannot reuse dependencies' }
+    if (Test-Path -LiteralPath $Root) { throw 'offline builds require a fresh root' }
+    $OfflineBundle = (Resolve-Path -LiteralPath $OfflineBundle).Path
+}
 New-Item -ItemType Directory -Force $downloads, $src | Out-Null
 
 # Native tools report progress on stderr. Windows PowerShell turns redirected
@@ -51,9 +59,48 @@ function Get-Sha256([string]$path) {
     (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
 }
 
+if ($OfflineBundle) {
+    $manifestPath = Join-Path $OfflineBundle 'offline-manifest.json'
+    if (-not $OfflineManifestSha256 -or (Get-Sha256 $manifestPath) -ne $OfflineManifestSha256) {
+        throw 'offline manifest does not match the caller-bound digest'
+    }
+    $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+    if ($manifest.schema -ne 1 -or -not $manifest.files) { throw 'invalid offline manifest' }
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($item in $manifest.files) {
+        if ($item.path -notmatch '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$' -or
+            @($item.path.Split('/') | Where-Object { $_ -eq '..' -or $_ -eq '.' }).Count -ne 0 -or
+            -not $seen.Add($item.path)) { throw 'unsafe or duplicate offline input path' }
+        $file = Join-Path $OfflineBundle $item.path
+        $info = Get-Item -Force -LiteralPath $file
+        if ($info.PSIsContainer -or $info.Length -ne $item.size -or
+            (Get-Sha256 $file) -ne $item.sha256) { throw "missing or changed offline input: $($item.path)" }
+    }
+    foreach ($file in Get-ChildItem -Force -Recurse -LiteralPath $OfflineBundle) {
+        if ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'offline input contains a reparse point' }
+        if (-not $file.PSIsContainer) {
+            $relative = $file.FullName.Substring($OfflineBundle.Length + 1).Replace('\', '/')
+            if ($relative -ne 'offline-manifest.json' -and -not $seen.Contains($relative)) {
+                throw "unexpected offline input: $relative"
+            }
+        }
+    }
+} elseif ($OfflineManifestSha256) {
+    throw 'offline manifest digest requires OfflineBundle'
+}
+
 function Get-Pinned($item, [string]$destination) {
     $file = Join-Path $downloads $item.name
+    if ($OfflineBundle) {
+        $inputFile = Join-Path $OfflineBundle $item.name
+        if (-not (Test-Path -LiteralPath $inputFile -PathType Leaf) -or
+            (Get-Sha256 $inputFile) -ne $item.sha256) {
+            throw "missing or changed offline input: $($item.name)"
+        }
+        Copy-Item -LiteralPath $inputFile -Destination $file
+    }
     if (-not (Test-Path -LiteralPath $file) -or (Get-Sha256 $file) -ne $item.sha256) {
+        if ($OfflineBundle) { throw "offline input was changed: $($item.name)" }
         Invoke-WebRequest -UseBasicParsing -Uri $item.url -OutFile $file
     }
     $actual = Get-Sha256 $file
@@ -81,6 +128,30 @@ $toolRecords = @()
 foreach ($item in $inputs.build_tools) { $toolRecords += Get-Pinned $item $Root }
 $perlBin = Join-Path $Root 'perl\bin'
 $cmake = 'cmake'
+$offlineCmakeArguments = @()
+if ($OfflineBundle) {
+    $toolRecords += Get-Pinned $inputs.cmake_tool $Root
+    $cmake = Join-Path $Root "$($inputs.cmake_tool.dir)\bin\cmake.exe"
+    foreach ($item in $inputs.cmake_sources) {
+        $sourceRecords += Get-Pinned $item $src
+        $offlineCmakeArguments += "-DFETCHCONTENT_SOURCE_DIR_$($item.cmake_name)=$(Join-Path $src $item.dir)"
+    }
+    $offlineCmakeArguments += '-DFETCHCONTENT_FULLY_DISCONNECTED=ON'
+    $offlineCmakeArguments += '-DNVAT_OFFLINE_BUILD=ON'
+    $env:CARGO_HOME = Join-Path $Root 'cargo-home'
+    New-Item -ItemType Directory -Path $env:CARGO_HOME | Out-Null
+    $vendorArchive = Join-Path $OfflineBundle 'cargo-vendor.tar.gz'
+    $vendorPin = Get-Content -Raw (Join-Path $OfflineBundle 'cargo-vendor.json') | ConvertFrom-Json
+    if ((Get-Sha256 $vendorArchive) -ne $vendorPin.sha256) { throw 'offline Cargo vendor digest mismatch' }
+    if ($vendorPin.cargo_lock_sha256 -ne (Get-Sha256 (Join-Path $repo 'sol\release\regorus-Cargo.lock'))) {
+        throw 'offline Cargo graph differs from the fork lock'
+    }
+    Invoke-Checked 'extract offline Cargo vendor' { tar.exe -xf $vendorArchive -C $Root }
+    $vendorPath = (Join-Path $Root 'cargo-vendor').Replace('\', '/')
+    @('[source.crates-io]', 'replace-with = "offline-vendor"', '[source.offline-vendor]', "directory = `"$vendorPath`"", '[net]', 'offline = true') |
+        Set-Content -Encoding ASCII (Join-Path $env:CARGO_HOME 'config.toml')
+    $env:CARGO_NET_OFFLINE = 'true'
+}
 
 if (-not ($ReuseDependencies -and (Test-Path (Join-Path $deps 'lib\libcurl.lib')))) {
     if (Test-Path $deps) { Remove-Item -Recurse -Force $deps }
@@ -138,7 +209,7 @@ if (-not ($ReuseDependencies -and (Test-Path (Join-Path $deps 'lib\libcurl.lib')
 if (Test-Path $build) { Remove-Item -Recurse -Force $build }
 Invoke-Checked 'nvattest configure' {
     & $cmake -S (Join-Path $repo 'nv-attestation-cli') -B $build -G 'NMake Makefiles' -DCMAKE_BUILD_TYPE=Release `
-        -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTING=OFF -DNVAT_RELEASE_ARTIFACT=ON "-DNVAT_WINDOWS_DEPS_DIR=$deps"
+        -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTING=OFF -DNVAT_RELEASE_ARTIFACT=ON "-DNVAT_WINDOWS_DEPS_DIR=$deps" @offlineCmakeArguments
 }
 Invoke-Checked 'nvattest build' { & $cmake --build $build }
 
@@ -159,7 +230,13 @@ $caUrl = [regex]::Match($targets, '(?m)^ca_bundle_url\s*=\s*"([^"]+)"').Groups[1
 $caSha = [regex]::Match($targets, '(?m)^ca_bundle_sha256\s*=\s*"([0-9a-f]{64})"').Groups[1].Value
 if (-not $caUrl -or -not $caSha) { throw 'targets.toml has no CA bundle pin' }
 $caFile = Join-Path $downloads 'ca-bundle.pem'
+if ($OfflineBundle) {
+    $offlineCa = Join-Path $OfflineBundle 'ca-bundle.pem'
+    if ((Get-Sha256 $offlineCa) -ne $caSha) { throw 'offline CA digest mismatch' }
+    Copy-Item -LiteralPath $offlineCa -Destination $caFile
+}
 if (-not (Test-Path $caFile) -or (Get-Sha256 $caFile) -ne $caSha) {
+    if ($OfflineBundle) { throw 'offline CA was changed' }
     Invoke-WebRequest -UseBasicParsing -Uri $caUrl -OutFile $caFile
 }
 if ((Get-Sha256 $caFile) -ne $caSha) { throw 'CA bundle digest mismatch' }
