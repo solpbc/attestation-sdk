@@ -15,11 +15,17 @@ powershell -ExecutionPolicy Bypass -File sol\windows\build.ps1 -Root C:\nvb
 The script:
 
 1. Fetches every source in `inputs.json` and checks its SHA-256. The OpenSSL, libxml2, xmlsec and curl archives are the same coordinates the POSIX build declares; `sol/release/tests/test_windows_inputs.py` holds them equal. Strawberry Perl is a build-only tool for OpenSSL's `Configure` and is not shipped.
-2. Builds static OpenSSL, zlib, libxml2 (without its catalog), xmlsec and curl (no compiled-in CA path) with the dynamic Microsoft C++ runtime (`/MD`).
+2. Builds static OpenSSL, zlib, libxml2 (without its catalog), xmlsec and curl (no compiled-in CA path).
 3. Configures `nv-attestation-cli` with `NVAT_WINDOWS_DEPS_DIR` and builds `nvattest.exe` and the UTC self-test, then runs the self-test.
 4. Stages `dist\nvattest\` and writes `build-report.json` (tools, input digests, output digests, imported DLLs).
 
 `-ReuseDependencies` skips step 2 when its output is already present.
+
+### Offline inputs
+
+On a connected host with Python 3.12 or later, run `python3 sol/windows/prepare-offline.py prepare BUNDLE` with a new bundle directory. It acquires the pinned native and CMake sources, build-tool archives, CA bundle and locked Cargo crates. Record the SHA-256 of `BUNDLE/offline-manifest.json` before transferring the bundle to Windows.
+
+Pass `-OfflineBundle BUNDLE -OfflineManifestSha256 DIGEST` to `build.ps1`, using that recorded digest. This mode requires a fresh output root and refuses `-ReuseDependencies`. It checks the manifest and each input, refuses extra files and reparse points, and builds Cargo from a fresh home with the vendored graph matching `sol/release/regorus-Cargo.lock`. Archive acquisition has no network fallback; CMake uses the supplied source directories, and Cargo runs with `--frozen --offline`. The Visual Studio and Rust toolchains must already be installed.
 
 ## Payload
 

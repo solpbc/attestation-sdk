@@ -135,6 +135,31 @@ if ($OfflineBundle) {
     foreach ($item in $inputs.cmake_sources) {
         $sourceRecords += Get-Pinned $item $src
         $offlineCmakeArguments += "-DFETCHCONTENT_SOURCE_DIR_$($item.cmake_name)=$(Join-Path $src $item.dir)"
+        if ($item.cmake_name -eq 'REGORUS') {
+            # The pinned source archive has no .git directory. Its build script
+            # otherwise launches git to embed the source revision. Bind that
+            # metadata directly to the archive coordinate, without a PATH tool.
+            $buildScript = Join-Path (Join-Path $src $item.dir) 'build.rs'
+            if ($item.revision -notmatch '^[0-9a-f]{40}$' -or
+                (Get-Sha256 $buildScript) -ne $item.build_script_sha256) {
+                throw 'unexpected offline Regorus build script'
+            }
+            $old = @'
+        let output = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .expect("`git rev-parse HEAD` failed.");
+        let git_hash = String::from_utf8(output.stdout).unwrap();
+'@
+            $original = [IO.File]::ReadAllText($buildScript)
+            if (-not $original.Contains($old)) { throw 'offline Regorus revision substitution failed' }
+            $patched = $original.Replace($old, "        let git_hash = `"$($item.revision)`";")
+            [IO.File]::WriteAllText($buildScript, $patched, [Text.UTF8Encoding]::new($false))
+            $sourceRecords += [ordered]@{
+                name = 'regorus-build-revision'; revision = $item.revision
+                original_sha256 = $item.build_script_sha256; sha256 = (Get-Sha256 $buildScript)
+            }
+        }
     }
     $offlineCmakeArguments += '-DFETCHCONTENT_FULLY_DISCONNECTED=ON'
     $offlineCmakeArguments += '-DNVAT_OFFLINE_BUILD=ON'

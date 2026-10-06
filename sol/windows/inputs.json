@@ -72,6 +72,7 @@
       "name": "regorus-c7bf460bc160c96e38048296e5708943d2e43909.tar.gz",
       "repository": "https://github.com/microsoft/regorus.git",
       "revision": "c7bf460bc160c96e38048296e5708943d2e43909",
+      "build_script_sha256": "7dc931d2a3cc9203b9cf63c9da29e85122f8b10ae2b1a4318494eacc178a3956",
       "url": "https://codeload.github.com/microsoft/regorus/tar.gz/c7bf460bc160c96e38048296e5708943d2e43909",
       "sha256": "188805b3b44b1cd2f9e8fd9b74a281b5f8eaa1c1b4087fd442afc88eccfef7cd",
       "size": 1152784,
