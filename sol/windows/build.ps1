@@ -68,7 +68,7 @@ if ($OfflineBundle) {
     if ($manifest.schema -ne 1 -or -not $manifest.files) { throw 'invalid offline manifest' }
     $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($item in $manifest.files) {
-        if ($item.path -notmatch '^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$' -or
+        if ($item.path -notmatch '^[A-Za-z0-9_+.-]+(/[A-Za-z0-9_+.-]+)*$' -or
             @($item.path.Split('/') | Where-Object { $_ -eq '..' -or $_ -eq '.' }).Count -ne 0 -or
             -not $seen.Add($item.path)) { throw 'unsafe or duplicate offline input path' }
         $file = Join-Path $OfflineBundle $item.path
