@@ -16,6 +16,9 @@ SHT_STRTAB = 3
 SHT_DYNAMIC = 6
 SHT_GNU_VERNEED = 0x6FFFFFFE
 DT_NEEDED = 1
+DT_SONAME = 14
+DT_RPATH = 15
+DT_RUNPATH = 29
 
 
 class ElfError(ValueError):
@@ -31,6 +34,9 @@ class ElfInfo:
     needed: tuple[str, ...]
     versions: tuple[str, ...]
     data: bytes
+    soname: tuple[str, ...] = ()
+    rpaths: tuple[str, ...] = ()
+    runpaths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -122,6 +128,8 @@ def read(path: Path) -> ElfInfo:
 
     needed: list[str] = []
     versions: list[str] = []
+    strings_by_tag: dict[int, list[str]] = {DT_SONAME: [], DT_RPATH: [], DT_RUNPATH: []}
+    tag_names = {DT_SONAME: "DT_SONAME", DT_RPATH: "DT_RPATH", DT_RUNPATH: "DT_RUNPATH"}
     for section in sections:
         if section.section_type == SHT_DYNAMIC:
             if section.entry_size not in (0, 16) or section.size % 16:
@@ -132,6 +140,12 @@ def read(path: Path) -> ElfInfo:
                     needed.append(
                         _string_from_section(
                             data, path, sections, section.link, value, "DT_NEEDED"
+                        )
+                    )
+                elif tag in strings_by_tag:
+                    strings_by_tag[tag].append(
+                        _string_from_section(
+                            data, path, sections, section.link, value, tag_names[tag]
                         )
                     )
         elif section.section_type == SHT_GNU_VERNEED:
@@ -182,4 +196,7 @@ def read(path: Path) -> ElfInfo:
         needed=tuple(needed),
         versions=tuple(versions),
         data=data,
+        soname=tuple(strings_by_tag[DT_SONAME]),
+        rpaths=tuple(strings_by_tag[DT_RPATH]),
+        runpaths=tuple(strings_by_tag[DT_RUNPATH]),
     )

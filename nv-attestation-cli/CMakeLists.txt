@@ -7,6 +7,8 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
 endif()
 project(nvattest VERSION 1.2.2)
 nvat_validate_apple_architecture()
+include("${CMAKE_CURRENT_LIST_DIR}/../nv-attestation-sdk-cpp/cmake/nvat_host_path_remap.cmake")
+nvat_add_build_path_remap()
 
 option(BUILD_TESTING "Build tests" OFF)
 option(USE_SYSTEM_NVAT "Compile and link to the system nvat library. If OFF, nvat will be built from source." OFF)

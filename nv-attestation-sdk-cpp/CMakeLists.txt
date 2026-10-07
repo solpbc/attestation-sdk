@@ -48,6 +48,8 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24")
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/nvat_host_path_remap.cmake")
+nvat_add_build_path_remap()
 
 FetchContent_Declare(
     Corrosion
@@ -94,6 +96,7 @@ endif()
 if (ENABLE_SCCACHE)
   corrosion_set_env_vars(regorus_ffi "RUSTC_WRAPPER=${SCCACHE}")
 endif()
+nvat_add_rust_build_path_remap(regorus_ffi)
 
 set(JWT_DISABLE_PICOJSON ON CACHE BOOL "Disable picojson support in jwt-cpp")
 set(JWT_BUILD_EXAMPLES OFF CACHE BOOL "Disable building jwt-cpp examples")
@@ -251,8 +254,8 @@ else()
   set(OPENSSL_INSTALL_DIR "${CMAKE_BINARY_DIR}/openssl-install")
 
   ExternalProject_Add(openssl_external
-    URL https://github.com/openssl/openssl/releases/download/openssl-3.6.1/openssl-3.6.1.tar.gz
-    URL_HASH SHA256=b1bfedcd5b289ff22aee87c9d600f515767ebf45f77168cb6d64f231f518a82e
+    URL https://github.com/openssl/openssl/releases/download/openssl-3.6.4/openssl-3.6.4.tar.gz
+    URL_HASH SHA256=9bffaa1ad1e07b354c21bd3324ec02fa15579f45a7d0494b3e74bc449b7333ef
     CONFIGURE_COMMAND ${NVAT_EP_ENV_COMMAND} <SOURCE_DIR>/Configure
       ${_OPENSSL_CONFIGURE_TARGET}
       "CC=${_EP_CC}"
@@ -319,6 +322,10 @@ else()
       --without-lzma
       --without-http
       --without-ftp
+      # sol: no catalog support. The default catalog path is compiled from
+      # --prefix, which names the build tree; neither the SDK nor xmlsec calls
+      # a catalog API (sol/notes/build-host-path-hygiene.md).
+      --without-catalog
       "CC=${_EP_CC}"
       "CFLAGS=${_EP_AUTOCONF_CFLAGS}"
     BUILD_COMMAND ${NVAT_EP_ENV_COMMAND} make -j${CMAKE_BUILD_PARALLEL_LEVEL}
@@ -361,8 +368,8 @@ else()
 
   ExternalProject_Add(curl_external
     DEPENDS openssl_external
-    URL https://github.com/curl/curl/releases/download/curl-7_88_1/curl-7.88.1.tar.gz
-    URL_HASH SHA256=cdb38b72e36bc5d33d5b8810f8018ece1baa29a8f215b4495e495ded82bbf3c7
+    URL https://github.com/curl/curl/releases/download/curl-8_22_0/curl-8.22.0.tar.gz
+    URL_HASH SHA256=d54dd598bf05927a726deb38df31c6a255ba83ff1de57c5d1464dac3ed8f44a1
     CONFIGURE_COMMAND ${NVAT_EP_ENV_COMMAND} <SOURCE_DIR>/configure
       --prefix=${CURL_INSTALL_DIR}
       --with-openssl=${OPENSSL_INSTALL_DIR}

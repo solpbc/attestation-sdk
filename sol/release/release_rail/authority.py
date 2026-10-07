@@ -41,6 +41,7 @@ _TARGET_KEYS = {
     "required_tools",
     "macho_install_id",
     "macho_rpath",
+    "elf_runpath",
 }
 _DIGEST_REFERENCE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 
@@ -155,7 +156,11 @@ def load(path: Path | None = None) -> Authority:
         if not isinstance(target, dict):
             raise AuthorityError("each target must be a table")
         _unknown_keys("target", target, _TARGET_KEYS)
-        required_target_keys = _TARGET_KEYS - {"macho_install_id", "macho_rpath"}
+        required_target_keys = _TARGET_KEYS - {
+            "macho_install_id",
+            "macho_rpath",
+            "elf_runpath",
+        }
         missing = sorted(required_target_keys - set(target))
         if missing:
             raise AuthorityError(
@@ -197,10 +202,26 @@ def load(path: Path | None = None) -> Authority:
                     f"{target_id}: expected_arch must be CPU_TYPE_ARM64; correct "
                     "sol/release/targets.toml, then retry"
                 )
+            if "elf_runpath" in target:
+                raise AuthorityError(
+                    f"{target_id}: elf_runpath requires binary_format=elf64-le"
+                )
         elif target["build_image"] == "none" or len(target["gate_images"]) != 2:
             raise AuthorityError(f"{target_id}: Linux targets need one build and two gate images")
         elif "macho_install_id" in target or "macho_rpath" in target:
             raise AuthorityError(f"{target_id}: Mach-O policy requires binary_format=macho64-le")
+        else:
+            runpath = target.get("elf_runpath")
+            if (
+                not isinstance(runpath, str)
+                or not runpath
+                or any(not entry for entry in runpath.split(":"))
+            ):
+                raise AuthorityError(
+                    f"{target_id}: ELF target requires elf_runpath, a nonempty "
+                    "runpath with no empty entry; correct "
+                    "sol/release/targets.toml, then retry"
+                )
         if not isinstance(target["members"], list) or not target["members"]:
             raise AuthorityError(f"{target_id}: members must be a nonempty list")
         for member in target["members"]:

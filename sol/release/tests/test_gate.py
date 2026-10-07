@@ -195,6 +195,58 @@ class GateTest(unittest.TestCase):
             elf_allowlist,
         )
 
+    def test_elf_runpath_policy(self):
+        target, allowlist = self.target(authority.TARGET_IDS[0])
+        self.assertEqual(target["elf_runpath"], "$ORIGIN/../lib")
+        gate.gate_file(self.write("nvattest", fixtures.elf_fixture(elf.EM_X86_64)), target, allowlist)
+        gate.gate_file(
+            self.write("libnvat.so", fixtures.elf_fixture(elf.EM_X86_64, soname="libnvat.so.1")),
+            target,
+            allowlist,
+        )
+        refusals = (
+            ("missing", {"runpaths": ()}, "exactly DT_RUNPATH"),
+            ("build tree", {"runpaths": ("/src/build/release/nv-attestation-sdk-build:",)}, "empty entry"),
+            ("empty entry", {"runpaths": ("$ORIGIN/../lib:",)}, "empty entry"),
+            ("other value", {"runpaths": ("$ORIGIN/lib",)}, "exactly DT_RUNPATH"),
+            ("twice", {"runpaths": ("$ORIGIN/../lib", "$ORIGIN/../lib")}, "exactly DT_RUNPATH"),
+            ("rpath", {"rpaths": ("$ORIGIN/../lib",)}, "DT_RPATH is not permitted"),
+            ("library runpath", {"soname": "libnvat.so.1", "runpaths": ("$ORIGIN",)}, "library must not contain DT_RUNPATH"),
+            ("library rpath", {"soname": "libnvat.so.1", "rpaths": ("/x/y",)}, "DT_RPATH is not permitted"),
+        )
+        for name, options, message in refusals:
+            with self.subTest(case=name):
+                with self.assertRaisesRegex(gate.GateError, message):
+                    gate.gate_file(
+                        self.write("refused.elf", fixtures.elf_fixture(elf.EM_X86_64, **options)),
+                        target,
+                        allowlist,
+                    )
+
+    def test_build_root_gate_refuses_each_root_in_any_member(self):
+        roots = gate.build_root_strings(
+            ["/nvat-sol-release/src", "/nvat-sol-release/src/build/release", "/home/u/.cargo", "/home/u/"]
+        )
+        self.assertEqual(roots[-1], b"/home/u")
+        clean = self.write("clean", b"./_deps/regorus-src/src/lib.rs\0cargo-home/registry/src\0")
+        gate.gate_build_root_files([clean], roots)
+        for planted in (
+            b"/nvat-sol-release/src/build/release/_deps/regorus-src/src/lib.rs",
+            b"file:///nvat-sol-release/src/x",
+            b"/home/u/.cargo/registry/src/index.crates.io-1/serde/src/de.rs",
+            b"notices mention /home/u somewhere",
+        ):
+            with self.subTest(planted=planted):
+                member = self.write("member", b"prefix\0" + planted + b"\0suffix")
+                with self.assertRaisesRegex(gate.GateError, "build-host root found"):
+                    gate.gate_build_root_files([clean, member], roots)
+
+    def test_build_root_gate_refuses_roots_it_cannot_test(self):
+        for roots in ([], ["relative/path"], ["/src"], ["/root/"], ["/"]):
+            with self.subTest(roots=roots):
+                with self.assertRaises(gate.GateError):
+                    gate.build_root_strings(roots)
+
     def test_valid_macho_executable_and_library(self):
         target, allowlist = self.target(authority.TARGET_IDS[2])
         gate.gate_file(

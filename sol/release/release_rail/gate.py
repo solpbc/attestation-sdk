@@ -84,7 +84,75 @@ def gate_elf(path: Path, target: dict[str, Any], allowlist: list[str]) -> None:
             raise GateError(
                 f"{path}: {family} requirement {value} exceeds target floor {limit}"
             )
+    _gate_elf_runpath(path, info, target)
     _forbidden_strings(path, info.data)
+
+
+def _gate_elf_runpath(path: Path, info: elf.ElfInfo, target: dict[str, Any]) -> None:
+    """A library carries no loader path; the executable names exactly one."""
+    if info.rpaths:
+        raise GateError(f"{path}: DT_RPATH is not permitted, got {list(info.rpaths)}")
+    if info.soname:
+        if info.runpaths:
+            raise GateError(
+                f"{path}: library must not contain DT_RUNPATH, got {list(info.runpaths)}"
+            )
+        return
+    for runpath in info.runpaths:
+        if any(not entry for entry in runpath.split(":")):
+            raise GateError(f"{path}: DT_RUNPATH {runpath!r} has an empty entry")
+    if info.runpaths != (target["elf_runpath"],):
+        raise GateError(
+            f"{path}: executable must contain exactly "
+            f"DT_RUNPATH={target['elf_runpath']}, got {list(info.runpaths)}"
+        )
+
+
+def build_root_strings(roots: list[str] | tuple[str, ...]) -> tuple[bytes, ...]:
+    """Validate this build's host roots for the build-root gate."""
+    values: list[bytes] = []
+    for root in roots:
+        if not isinstance(root, str) or not root.startswith("/"):
+            raise GateError(f"build root {root!r} is not an absolute path")
+        normalized = root.rstrip("/")
+        # A one-component root such as /src or /root also matches ordinary
+        # relative paths (regorus-src/src/...), so it cannot be a plain
+        # substring test. The Linux build therefore runs under distinctive
+        # container roots.
+        if normalized.count("/") < 2:
+            raise GateError(
+                f"build root {root!r} has fewer than two path components and "
+                "cannot be tested as a plain substring"
+            )
+        encoded = normalized.encode()
+        if encoded not in values:
+            values.append(encoded)
+    if not values:
+        raise GateError("no build roots supplied to the build-root gate")
+    return tuple(values)
+
+
+def gate_build_root_files(paths: list[Path], roots: tuple[bytes, ...]) -> None:
+    """Refuse any build root found as a substring of any of the files."""
+    for path in paths:
+        try:
+            data = path.read_bytes()
+        except OSError as error:
+            raise GateError(f"{path}: cannot read archive member: {error}") from error
+        for root in roots:
+            if root in data:
+                raise GateError(
+                    f"{path}: build-host root found: {root.decode()} "
+                    f"({data.count(root)} occurrence(s))"
+                )
+
+
+def gate_build_roots(tree: Path, members: list[dict[str, Any]], roots: tuple[bytes, ...]) -> None:
+    """Refuse any build root found as a substring of any regular archive member."""
+    gate_build_root_files(
+        [tree / member["path"] for member in members if member["kind"] == "regular"],
+        roots,
+    )
 
 
 def _allowed_macho_reference(reference: str, allowlist: list[str]) -> bool:

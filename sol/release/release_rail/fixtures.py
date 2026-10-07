@@ -19,10 +19,18 @@ def elf_fixture(
     versions: Iterable[str] = (),
     strings: Iterable[str] = (),
     *,
+    soname: str | None = None,
+    runpaths: Iterable[str] | None = None,
+    rpaths: Iterable[str] = (),
     truncated_at: int | None = None,
 ) -> bytes:
+    """An executable by default (the release runpath); a library given a soname."""
     needed = tuple(needed)
     versions = tuple(versions)
+    if runpaths is None:
+        runpaths = () if soname is not None else ("$ORIGIN/../lib",)
+    runpaths = tuple(runpaths)
+    rpaths = tuple(rpaths)
     table = bytearray(b"\0")
 
     def add_string(value: str) -> int:
@@ -32,7 +40,12 @@ def elf_fixture(
 
     needed_offsets = [add_string(value) for value in needed]
     version_offsets = [add_string(value) for value in versions]
-    dynamic = b"".join(struct.pack("<qQ", elf.DT_NEEDED, offset) for offset in needed_offsets)
+    tagged = [(elf.DT_NEEDED, offset) for offset in needed_offsets]
+    if soname is not None:
+        tagged.append((elf.DT_SONAME, add_string(soname)))
+    tagged.extend((elf.DT_RPATH, add_string(value)) for value in rpaths)
+    tagged.extend((elf.DT_RUNPATH, add_string(value)) for value in runpaths)
+    dynamic = b"".join(struct.pack("<qQ", tag, offset) for tag, offset in tagged)
     dynamic += struct.pack("<qQ", 0, 0)
 
     version_need = bytearray()

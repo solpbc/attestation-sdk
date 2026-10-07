@@ -8,10 +8,21 @@ tools. Inspect it before operating the rail:
 python3 sol/release/rail.py authority host-target
 ```
 
-**Opening a new Sol revision?** Whatever the reason, it carries the open work
-in [`../notes/build-host-path-hygiene.md`](../notes/build-host-path-hygiene.md):
-libxml2 without a catalog, compile-time path remapping, a build-root gate and an
-ELF RUNPATH gate.
+**Build-host paths.** Since sol.6 the archives carry no path from the host
+that built them, and two static gates hold that line: the build-root gate
+refuses this build's checkout, binary directory, Cargo home and home directory
+anywhere in any archive member, and the ELF RUNPATH gate requires the
+executable's `DT_RUNPATH` to equal `elf_runpath` in `targets.toml` and refuses
+any loader path on the library. The Linux build runs under
+`/nvat-sol-release/src` and `/nvat-sol-release/home` so those roots are
+distinctive enough to test as plain substrings. Background and the falsifying
+runs: [`../notes/build-host-path-hygiene.md`](../notes/build-host-path-hygiene.md).
+To check other archives by hand:
+
+```sh
+python3 sol/release/rail.py gate-roots --root <root> [--root <root> ...] <file>...
+python3 sol/release/rail.py gate <target> <binary>...
+```
 
 ## Native construction
 

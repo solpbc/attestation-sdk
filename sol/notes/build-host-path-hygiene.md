@@ -1,10 +1,9 @@
 # Build-host path hygiene (2026-10-03)
 
 sol.5 pointed OpenSSL's module and engine roots at the inert `/nvat-openssl`
-prefix. Other build-host paths are still in every published archive. This note
-records what is left, which of it can be loaded, and the work the next Sol
-revision carries. **Whatever the reason a revision is opened, it carries this
-work.**
+prefix. Other build-host paths were still in every published archive. This
+note records what was left, which of it could be loaded, and the work sol.6
+did about it (see [Done in sol.6](#done-in-sol6) at the end).
 
 ## What sol.5 still carries
 
@@ -75,3 +74,34 @@ and directory.
    The current confidential-processing image checks NVIDIA status online, and
    that path (curl, the CA configuration, OCSP) is built separately for each
    target.
+
+## Done in sol.6 (2026-10-07)
+
+sol.6 opened for the OpenSSL 3.6.4 and curl 8.22.0 security updates and carries
+all five items.
+
+1. libxml2 is configured `--without-catalog` on Linux and macOS; the Windows
+   build already used `LIBXML2_WITH_CATALOG=OFF`. The tripwire above is gone
+   with the code.
+2. `nv-attestation-sdk-cpp/cmake/nvat_host_path_remap.cmake` maps the
+   repository root and the CMake binary directory to `.` for every GNU, Clang
+   and AppleClang C/C++ target, from both the CLI and the SDK CMake files, and
+   adds `--remap-path-prefix` for the repository root, the binary directory and
+   the Cargo home (to `cargo-home`) to the `regorus_ffi` RUSTFLAGS, which
+   reach every crate in its graph. The vendored autoconf projects are left
+   alone: OpenSSL records its CFLAGS in the library, so a remap flag there would
+   embed the path it removes.
+3. The build-root gate (`gate.gate_build_roots`) runs on the staged and the
+   extracted archive. A root with fewer than two path components also matches
+   ordinary relative paths (`regorus-src/src/...`), so the Linux build now runs
+   under `/nvat-sol-release/src` with `HOME=/nvat-sol-release/home` and
+   `CARGO_HOME=/nvat-sol-release/home/.cargo` instead of `/src` and `/root`;
+   the host checkout, home and Cargo home are refused too. Falsified on the
+   served sol.5 archives: red on `/src/build/release` in both Linux libraries
+   (35 occurrences each) and on the macOS build directory in `bin/nvattest`.
+4. `release_rail/elf.py` reads `DT_SONAME`, `DT_RPATH` and `DT_RUNPATH`. A
+   library (it has a `DT_SONAME`) carries no loader path; the executable carries
+   exactly `elf_runpath`; `DT_RPATH` and empty entries are refused. Falsified on
+   sol.3's `bin/nvattest` (`/src/build/release/nv-attestation-sdk-build:`):
+   red. `validate-set` applies it too.
+5. Acceptance is recorded with the release, not here.

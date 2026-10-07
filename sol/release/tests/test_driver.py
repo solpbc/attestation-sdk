@@ -273,7 +273,11 @@ class DriverPreflightTest(unittest.TestCase):
         arguments = run.call_args.args[0]
         self.assertEqual(arguments[0], selection.name)
         self.assertIn(runtime.LOCAL_IMAGE_TAG, arguments)
-        self.assertIn(runtime.render_mount(root, "/src", False), arguments)
+        self.assertIn(
+            runtime.render_mount(root, driver.CONTAINER_SOURCE_ROOT, False), arguments
+        )
+        self.assertIn(f"HOME={driver.CONTAINER_HOME}", arguments)
+        self.assertIn(f"CARGO_HOME={driver.CONTAINER_CARGO_HOME}", arguments)
         self.assertIn(
             runtime.render_mount("/git/common", "/git/common", True), arguments
         )
@@ -303,6 +307,49 @@ class DriverPreflightTest(unittest.TestCase):
                     output.getvalue(),
                     f"release rail error: {error}\n",
                 )
+
+
+class BuildRootsTest(unittest.TestCase):
+    def test_linux_roots_name_container_and_host_roots(self):
+        data = authority.load()
+        environment = {"HOME": "/home/builder", "CARGO_HOME": "/opt/cargo-home"}
+        with mock.patch.dict(os.environ, environment, clear=True):
+            roots = driver._build_roots(Path("/work/sdk"), data.target(authority.TARGET_IDS[0]))
+        self.assertEqual(
+            roots,
+            (
+                b"/nvat-sol-release/src",
+                b"/nvat-sol-release/src/build/release",
+                b"/nvat-sol-release/home/.cargo",
+                b"/nvat-sol-release/home",
+                b"/work/sdk",
+                b"/work/sdk/build/release",
+                b"/opt/cargo-home",
+                b"/home/builder",
+            ),
+        )
+
+    def test_macos_roots_default_cargo_home_under_home(self):
+        data = authority.load()
+        with mock.patch.dict(os.environ, {"HOME": "/Users/builder"}, clear=True):
+            roots = driver._build_roots(Path("/Users/builder/sdk"), data.target("macos-arm64"))
+        self.assertEqual(
+            roots,
+            (
+                b"/Users/builder/sdk",
+                b"/Users/builder/sdk/build/release",
+                b"/Users/builder/.cargo",
+                b"/Users/builder",
+            ),
+        )
+
+    def test_an_untestable_home_fails_before_building(self):
+        data = authority.load()
+        for home in ("", "/", "/root"):
+            with self.subTest(home=home):
+                with mock.patch.dict(os.environ, {"HOME": home}, clear=True):
+                    with self.assertRaisesRegex(driver.ReleaseError, "build-root gate"):
+                        driver._build_roots(Path("/Users/builder/sdk"), data.target("macos-arm64"))
 
 
 class DriverRuntimeTest(unittest.TestCase):
@@ -469,6 +516,7 @@ class DriverRuntimeTest(unittest.TestCase):
                 patches.enter_context(mock.patch.object(driver, "_stage"))
                 patches.enter_context(mock.patch.object(driver, "_validate_layout"))
                 patches.enter_context(mock.patch.object(driver, "_gate_binaries"))
+                patches.enter_context(mock.patch.object(driver, "_gate_roots"))
                 patches.enter_context(
                     mock.patch.object(
                         archive, "construct", side_effect=construct
@@ -518,7 +566,7 @@ class DriverRuntimeTest(unittest.TestCase):
         )
         self.assertIn(runtime.LOCAL_IMAGE_TAG, arguments)
         self.assertIn(
-            runtime.render_mount("/source", "/src", True), arguments
+            runtime.render_mount("/source", driver.CONTAINER_SOURCE_ROOT, True), arguments
         )
 
     def test_linux_runtime_gates_keep_full_argument_contract(self):
@@ -1072,6 +1120,7 @@ class DriverRuntimeTest(unittest.TestCase):
                 "_stage",
                 "_validate_layout",
                 "_gate_binaries",
+                "_gate_roots",
             ):
                 stack.enter_context(mock.patch.object(driver, name))
             stack.enter_context(

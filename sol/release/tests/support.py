@@ -72,7 +72,9 @@ def make_stage(stage: Path, target):
                     "EM_X86_64": elf.EM_X86_64,
                     "EM_AARCH64": elf.EM_AARCH64,
                 }[target["expected_arch"]]
-                path.write_bytes(fixtures.elf_fixture(machine))
+                path.write_bytes(
+                    fixtures.elf_fixture(machine, soname="libnvat.so.1")
+                )
             else:
                 path.write_bytes(
                     fixtures.macho_fixture(

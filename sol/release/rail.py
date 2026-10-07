@@ -63,6 +63,12 @@ def _parser() -> argparse.ArgumentParser:
     gate_parser = commands.add_parser("gate")
     gate_parser.add_argument("target", choices=authority.TARGET_IDS)
     gate_parser.add_argument("files", nargs="+", type=Path)
+    roots_parser = commands.add_parser(
+        "gate-roots",
+        help="refuse any build-host root found in any of the files",
+    )
+    roots_parser.add_argument("--root", action="append", required=True, dest="roots")
+    roots_parser.add_argument("files", nargs="+", type=Path)
     release_parser = commands.add_parser("release")
     release_parser.add_argument("target", nargs="?")
     validate = commands.add_parser("validate-set")
@@ -94,6 +100,11 @@ def main() -> int:
             allowlist = authority.read_allowlist(data, target)
             for path in arguments.files:
                 gate.gate_file(path, target, allowlist)
+            return 0
+        if arguments.command == "gate-roots":
+            gate.gate_build_root_files(
+                arguments.files, gate.build_root_strings(arguments.roots)
+            )
             return 0
         if arguments.command == "release":
             root = Path(

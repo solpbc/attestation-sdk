@@ -37,6 +37,24 @@ class ElfReaderTest(unittest.TestCase):
                 self.assertEqual(info.needed, ("libc.so.6", "libz.so.1"))
                 self.assertEqual(info.versions, ("GLIBC_2.28", "CXXABI_1.3.11"))
 
+    def test_reads_soname_rpath_and_runpath(self):
+        info = elf.read(
+            self.write(
+                fixtures.elf_fixture(
+                    elf.EM_X86_64,
+                    soname="libnvat.so.1",
+                    rpaths=("/a",),
+                    runpaths=("$ORIGIN/../lib", "/b:"),
+                )
+            )
+        )
+        self.assertEqual(info.soname, ("libnvat.so.1",))
+        self.assertEqual(info.rpaths, ("/a",))
+        self.assertEqual(info.runpaths, ("$ORIGIN/../lib", "/b:"))
+        executable = elf.read(self.write(fixtures.elf_fixture(elf.EM_X86_64)))
+        self.assertEqual(executable.soname, ())
+        self.assertEqual(executable.runpaths, ("$ORIGIN/../lib",))
+
     def test_truncated_inputs_name_file_and_offset(self):
         complete = fixtures.elf_fixture(elf.EM_X86_64)
         for length in (0, 20, 63, len(complete) - 1):
@@ -54,7 +72,7 @@ class ElfReaderTest(unittest.TestCase):
             elf.read(self.write(bytes(payload)))
 
     def test_unterminated_dynamic_string_is_rejected(self):
-        payload = bytearray(fixtures.elf_fixture(elf.EM_X86_64))
+        payload = bytearray(fixtures.elf_fixture(elf.EM_X86_64, runpaths=()))
         section_offset = int.from_bytes(payload[40:48], "little")
         string_header = section_offset + 64
         string_offset = int.from_bytes(payload[string_header + 24 : string_header + 32], "little")

@@ -75,6 +75,8 @@ def warning_fixture_prepare(state=None, missing_targets=()):
             "  add_custom_target(cargo-build_regorus_ffi)\n"
             "endfunction()\n"
             "function(corrosion_set_env_vars)\n"
+            "endfunction()\n"
+            "function(corrosion_add_target_rustflags)\n"
             "endfunction()\n",
         )
         regorus = root / "regorus"

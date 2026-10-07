@@ -30,7 +30,7 @@ class AuthorityTest(unittest.TestCase):
         self.assertNotIn("openssl_configure_target", data.targets[authority.TARGET_IDS[0]])
         self.assertIn("required_tools", data.targets["macos-arm64"])
         self.assertNotIn("required_tool_versions", data.targets["macos-arm64"])
-        self.assertEqual(data.release["sol_revision"], 5)
+        self.assertEqual(data.release["sol_revision"], 6)
         self.assertRegex(data.release["upstream_base_commit"], r"^[0-9a-f]{40}$")
         macos = data.targets["macos-arm64"]
         self.assertEqual(
@@ -166,6 +166,33 @@ class AuthorityTest(unittest.TestCase):
                     'expected_arch = "EM_AARCH64"',
                 ),
                 "expected_arch must be CPU_TYPE_ARM64",
+            ),
+        )
+        for mutate, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(authority.AuthorityError, message):
+                    self.load_mutated(mutate)
+
+    def test_elf_runpath_is_required_on_elf_and_refused_on_macho(self):
+        for target_id in authority.TARGET_IDS[:2]:
+            self.assertEqual(authority.load().target(target_id)["elf_runpath"], "$ORIGIN/../lib")
+        cases = (
+            (
+                lambda source: source.replace('elf_runpath = "$ORIGIN/../lib"\n', "", 1),
+                "ELF target requires elf_runpath",
+            ),
+            (
+                lambda source: source.replace(
+                    'elf_runpath = "$ORIGIN/../lib"', 'elf_runpath = "$ORIGIN/../lib:"', 1
+                ),
+                "ELF target requires elf_runpath",
+            ),
+            (
+                lambda source: source.replace(
+                    'macho_rpath = "@executable_path/../lib"',
+                    'macho_rpath = "@executable_path/../lib"\nelf_runpath = "$ORIGIN/../lib"',
+                ),
+                "elf_runpath requires binary_format=elf64-le",
             ),
         )
         for mutate, message in cases:

@@ -1,5 +1,5 @@
 [release]
-sol_revision = 5
+sol_revision = 6
 upstream_base_commit = "73efa3ac1bec28ed7d7f0c0811a6c993e722dbd4"
 ca_snapshot_date = "2026-07-16"
 ca_bundle_url = "https://curl.se/ca/cacert-2026-07-16.pem"
@@ -23,6 +23,7 @@ expected_arch = "EM_X86_64"
 abi_kind = "gnu-symbol-max"
 abi_floor = { glibc = "2.28", glibcxx = "3.4.25", cxxabi = "1.3.11" }
 runtime_allowlist = "sol/release/allowlists/linux-x86_64.txt"
+elf_runpath = "$ORIGIN/../lib"
 members = [
   { path = "bin/nvattest", kind = "regular" },
   { path = "lib/libnvat.so", kind = "symlink", link_target = "libnvat.so.1" },
@@ -51,6 +52,7 @@ expected_arch = "EM_AARCH64"
 abi_kind = "gnu-symbol-max"
 abi_floor = { glibc = "2.28", glibcxx = "3.4.25", cxxabi = "1.3.11" }
 runtime_allowlist = "sol/release/allowlists/linux-aarch64.txt"
+elf_runpath = "$ORIGIN/../lib"
 members = [
   { path = "bin/nvattest", kind = "regular" },
   { path = "lib/libnvat.so", kind = "symlink", link_target = "libnvat.so.1" },

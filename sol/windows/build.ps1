@@ -55,6 +55,22 @@ function Invoke-Checked([string]$what, [scriptblock]$block) {
     if ($LASTEXITCODE -ne 0) { throw "$what failed with exit code $LASTEXITCODE" }
 }
 
+# CMake does not fail on an option it no longer knows: it warns that a
+# manually-specified variable was not used and builds with the default. The
+# dependency options below are part of the verifier's security configuration,
+# so an ignored one fails the build instead of passing silently.
+function Invoke-DependencyConfigure([string]$what, [string[]]$arguments) {
+    $log = Join-Path $Root "configure-$what.log"
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $cmake @arguments 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $log | Out-Host }
+    finally { $ErrorActionPreference = $saved }
+    if ($LASTEXITCODE -ne 0) { throw "$what configure failed with exit code $LASTEXITCODE" }
+    if (Select-String -LiteralPath $log -SimpleMatch 'Manually-specified variables were not used' -Quiet) {
+        throw "$what configure ignored a manually-specified variable; see $log"
+    }
+}
+
 function Get-Sha256([string]$path) {
     (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLowerInvariant()
 }
@@ -183,7 +199,7 @@ if (-not ($ReuseDependencies -and (Test-Path (Join-Path $deps 'lib\libcurl.lib')
     New-Item -ItemType Directory -Force $deps | Out-Null
     $env:CMAKE_BUILD_PARALLEL_LEVEL = [Environment]::ProcessorCount
 
-    Push-Location (Join-Path $src 'openssl-3.6.1')
+    Push-Location (Join-Path $src 'openssl-3.6.4')
     $savedPath = $env:Path
     $env:Path = "$perlBin;$env:Path"
     Invoke-Checked 'OpenSSL configure' {
@@ -200,11 +216,10 @@ if (-not ($ReuseDependencies -and (Test-Path (Join-Path $deps 'lib\libcurl.lib')
     Invoke-Checked 'zlib build' { & $cmake --build (Join-Path $Root 'b-zlib') }
     Invoke-Checked 'zlib install' { & $cmake --install (Join-Path $Root 'b-zlib') }
 
-    Invoke-Checked 'libxml2 configure' {
-        & $cmake -S (Join-Path $src 'libxml2-2.11.9') -B (Join-Path $Root 'b-libxml2') -G 'NMake Makefiles' -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$deps" `
-            -DBUILD_SHARED_LIBS=OFF -DLIBXML2_WITH_ICONV=OFF -DLIBXML2_WITH_LZMA=OFF -DLIBXML2_WITH_PYTHON=OFF -DLIBXML2_WITH_ZLIB=OFF `
-            -DLIBXML2_WITH_HTTP=OFF -DLIBXML2_WITH_FTP=OFF -DLIBXML2_WITH_CATALOG=OFF -DLIBXML2_WITH_TESTS=OFF -DLIBXML2_WITH_PROGRAMS=OFF
-    }
+    Invoke-DependencyConfigure 'libxml2' @(
+        '-S', (Join-Path $src 'libxml2-2.11.9'), '-B', (Join-Path $Root 'b-libxml2'), '-G', 'NMake Makefiles', '-DCMAKE_BUILD_TYPE=Release', "-DCMAKE_INSTALL_PREFIX=$deps",
+        '-DBUILD_SHARED_LIBS=OFF', '-DLIBXML2_WITH_ICONV=OFF', '-DLIBXML2_WITH_LZMA=OFF', '-DLIBXML2_WITH_PYTHON=OFF', '-DLIBXML2_WITH_ZLIB=OFF',
+        '-DLIBXML2_WITH_HTTP=OFF', '-DLIBXML2_WITH_FTP=OFF', '-DLIBXML2_WITH_CATALOG=OFF', '-DLIBXML2_WITH_TESTS=OFF', '-DLIBXML2_WITH_PROGRAMS=OFF')
     Invoke-Checked 'libxml2 build' { & $cmake --build (Join-Path $Root 'b-libxml2') }
     Invoke-Checked 'libxml2 install' { & $cmake --install (Join-Path $Root 'b-libxml2') }
     # xmlsec's MSVC makefile names the static libxml2 archive libxml2_a.lib.
@@ -221,12 +236,17 @@ if (-not ($ReuseDependencies -and (Test-Path (Join-Path $deps 'lib\libcurl.lib')
     Copy-Item binaries\libxmlsec_a.lib, binaries\libxmlsec-openssl_a.lib (Join-Path $deps 'lib')
     Pop-Location
 
-    Invoke-Checked 'curl configure' {
-        & $cmake -S (Join-Path $src 'curl-7.88.1') -B (Join-Path $Root 'b-curl') -G 'NMake Makefiles' -DCMAKE_BUILD_TYPE=Release "-DCMAKE_INSTALL_PREFIX=$deps" `
-            "-DOPENSSL_ROOT_DIR=$deps" -DOPENSSL_USE_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DBUILD_CURL_EXE=OFF -DCURL_USE_OPENSSL=ON `
-            -DCURL_USE_SCHANNEL=OFF -DCURL_USE_LIBSSH2=OFF -DCURL_USE_LIBPSL=OFF -DCURL_ZLIB=OFF -DCURL_DISABLE_LDAP=ON -DCURL_DISABLE_LDAPS=ON `
-            -DENABLE_UNICODE=ON -DCURL_CA_BUNDLE=none -DCURL_CA_PATH=none
-    }
+    # curl 8 builds documentation, tests and examples by default and probes for
+    # optional libraries; the build names every one it turns off. No CA bundle,
+    # CA path or OpenSSL fallback store is compiled in: the SDK hands curl the
+    # pinned bundle as a blob.
+    Invoke-DependencyConfigure 'curl' @(
+        '-S', (Join-Path $src 'curl-8.22.0'), '-B', (Join-Path $Root 'b-curl'), '-G', 'NMake Makefiles', '-DCMAKE_BUILD_TYPE=Release', "-DCMAKE_INSTALL_PREFIX=$deps",
+        "-DOPENSSL_ROOT_DIR=$deps", '-DOPENSSL_USE_STATIC_LIBS=ON', '-DBUILD_SHARED_LIBS=OFF', '-DBUILD_STATIC_LIBS=ON', '-DBUILD_CURL_EXE=OFF', '-DCURL_USE_OPENSSL=ON',
+        '-DCURL_USE_SCHANNEL=OFF', '-DCURL_USE_LIBSSH2=OFF', '-DCURL_USE_LIBPSL=OFF', '-DCURL_ZLIB=OFF', '-DCURL_BROTLI=OFF', '-DCURL_ZSTD=OFF',
+        '-DUSE_NGHTTP2=OFF', '-DUSE_LIBIDN2=OFF', '-DCURL_DISABLE_LDAP=ON', '-DCURL_DISABLE_LDAPS=ON', '-DENABLE_UNICODE=ON',
+        '-DCURL_CA_BUNDLE=none', '-DCURL_CA_PATH=none', '-DCURL_CA_FALLBACK=OFF',
+        '-DBUILD_TESTING=OFF', '-DBUILD_EXAMPLES=OFF', '-DBUILD_LIBCURL_DOCS=OFF', '-DBUILD_MISC_DOCS=OFF', '-DENABLE_CURL_MANUAL=OFF')
     Invoke-Checked 'curl build' { & $cmake --build (Join-Path $Root 'b-curl') }
     Invoke-Checked 'curl install' { & $cmake --install (Join-Path $Root 'b-curl') }
 }

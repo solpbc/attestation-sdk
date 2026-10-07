@@ -16,6 +16,14 @@ from typing import Any
 from . import apple, archive, authority, curl, gate, manifest, runtime, set_validator, transaction
 
 
+# The Linux build runs under these container roots rather than /src and /root.
+# A one-component root also matches ordinary relative paths, so only
+# distinctive roots let the build-root gate be a plain substring test.
+CONTAINER_SOURCE_ROOT = "/nvat-sol-release/src"
+CONTAINER_HOME = "/nvat-sol-release/home"
+CONTAINER_CARGO_HOME = f"{CONTAINER_HOME}/.cargo"
+
+
 class ReleaseError(RuntimeError):
     pass
 
@@ -267,15 +275,20 @@ def _build(
                 f"--platform={target['container_platform']}",
                 "-e",
                 f"SOURCE_DATE_EPOCH={source_date_epoch}",
+                "-e",
+                f"HOME={CONTAINER_HOME}",
+                "-e",
+                f"CARGO_HOME={CONTAINER_CARGO_HOME}",
                 "-v",
-                runtime.render_mount(root, "/src", False),
+                runtime.render_mount(root, CONTAINER_SOURCE_ROOT, False),
                 "-v",
                 runtime.render_mount(common, common, True),
                 "-w",
-                "/src",
+                CONTAINER_SOURCE_ROOT,
                 runtime.LOCAL_IMAGE_TAG,
                 "bash",
                 "-ec",
+                'mkdir -p "$HOME" && '
                 "rm -rf build/release && "
                 "cmake -S nv-attestation-cli -B build/release "
                 "-DUSE_SYSTEM_NVAT=OFF -DUSE_SYSTEM_DEPS=OFF "
@@ -341,9 +354,9 @@ def _tool_invoker(
                 "--rm",
                 f"--platform={target['container_platform']}",
                 "-v",
-                runtime.render_mount(root, "/src", True),
+                runtime.render_mount(root, CONTAINER_SOURCE_ROOT, True),
                 "-w",
-                "/src",
+                CONTAINER_SOURCE_ROOT,
                 runtime.LOCAL_IMAGE_TAG,
                 command,
                 "--version",
@@ -383,6 +396,29 @@ def _gate_binaries(stage: Path, data: authority.Authority, target: dict[str, Any
     for item in target["members"]:
         if gate.is_binary_member(item):
             gate.gate_file(stage / item["path"], target, allowlist)
+
+
+def _gate_roots(tree: Path, target: dict[str, Any], roots: tuple[bytes, ...]) -> None:
+    gate.gate_build_roots(tree, target["members"], roots)
+
+
+def _build_roots(root: Path, target: dict[str, Any]) -> tuple[bytes, ...]:
+    """This build's host roots: the checkout, binary dir, Cargo home and home."""
+    home = os.environ.get("HOME", "")
+    cargo_home = os.environ.get("CARGO_HOME") or (f"{home}/.cargo" if home else "")
+    roots = [str(root), str(root / "build/release"), cargo_home, home]
+    if target["host_os"] == "Linux":
+        roots = [
+            CONTAINER_SOURCE_ROOT,
+            f"{CONTAINER_SOURCE_ROOT}/build/release",
+            CONTAINER_CARGO_HOME,
+            CONTAINER_HOME,
+            *roots,
+        ]
+    try:
+        return gate.build_root_strings(roots)
+    except gate.GateError as error:
+        raise ReleaseError(f"cannot form the build-root gate: {error}") from error
 
 
 def _write_specs(owned: Path, target: dict[str, Any]) -> tuple[Path, Path]:
@@ -574,6 +610,7 @@ def release(root: Path, target_id: str | None) -> dict[str, Path]:
     version = _version(root, data)
     names = set_validator.quartet_names(target, version)
     source = _source(root, data.release)
+    roots = _build_roots(root, target)
 
     def builder(owned: Path, checkpoint: Any) -> dict[str, Path]:
         stage = owned / "stage"
@@ -630,6 +667,7 @@ def release(root: Path, target_id: str | None) -> dict[str, Path]:
         )
         _validate_layout(stage, target)
         _gate_binaries(stage, data, target)
+        _gate_roots(stage, target, roots)
         checkpoint("after-static-stage-gate")
         quartet = {
             key: owned / name
@@ -651,6 +689,7 @@ def release(root: Path, target_id: str | None) -> dict[str, Path]:
         )
         _validate_layout(extracted, target)
         _gate_binaries(extracted, data, target)
+        _gate_roots(extracted, target, roots)
         checkpoint("after-static-extracted-gate")
         dependencies = json.loads(dependencies_json.read_text(encoding="utf-8"))
         value = manifest.build(
