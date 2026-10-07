@@ -59,8 +59,9 @@ set_property(TARGET xmlsec::xmlsec-openssl PROPERTY
 
 nvat_import_windows_static(CURL::libcurl libcurl.lib "")
 set_property(TARGET CURL::libcurl PROPERTY INTERFACE_COMPILE_DEFINITIONS CURL_STATICLIB)
+# curl 8 resolves IPv6 scope names with if_nametoindex (iphlpapi).
 set_property(TARGET CURL::libcurl PROPERTY
-  INTERFACE_LINK_LIBRARIES "OpenSSL::SSL;OpenSSL::Crypto;ws2_32;crypt32;wldap32;normaliz")
+  INTERFACE_LINK_LIBRARIES "OpenSSL::SSL;OpenSSL::Crypto;ws2_32;iphlpapi;crypt32;wldap32;normaliz")
 
 set(ZLIB_LIBRARY "${_NVAT_DEPS}/lib/zlibstatic.lib" CACHE FILEPATH "Windows static zlib" FORCE)
 set(ZLIB_INCLUDE_DIR "${_NVAT_DEPS}/include" CACHE PATH "Windows zlib headers" FORCE)
