@@ -116,6 +116,8 @@ These upstream files differ from the comparison base:
 
 Each carries `Modified by sol pbc.` except `README.md`, whose opening paragraph is itself the fork notice.
 
+The sol.6 Windows verifier (`nvattest.exe`, not a rail target) is built from `ff957aa1012781d18b68973e370a0188b8ef502d`. It differs from the POSIX release source only in `nv-attestation-sdk-cpp/cmake/nvat_windows_deps.cmake`, a sol pbc file outside this comparison, and in documentation, so List D also covers it.
+
 ## Since sol.5, on `main`
 
 Every upstream file that differs from the upstream base now carries `Modified by sol pbc.` beside its licence identifier, including the sol.5 files listed above that lacked one and the files the native Windows build changed (`nv-attestation-cli/src/main.cpp`, `include/nv_attestation/utils.h`, `src/init.cpp`, `src/rim.cpp`, and the three collector sources). The next revision's list is taken from its own source commit.
