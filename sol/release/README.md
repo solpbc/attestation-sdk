@@ -160,8 +160,9 @@ roots, all four external projects' effective SDK/architecture/floor inputs,
 the genuine Apple toolchain evidence, and the final Mach-O architecture and
 deployment floor. VPE must also rerun Pro5E on the native arm64 archive and
 record both final link commands: `nvat` must contain the selected-SDK
-CoreFoundation and iconv closure exactly once after their static owners, while
-`nvattest` must contain neither as a direct link item. This Linux lode observed
+CoreFoundation, iconv and (since sol.6, for curl 8) SystemConfiguration closure
+exactly once after their static owners, while `nvattest` must contain none of
+them as a direct link item. This Linux lode observed
 only generated CMake link structure; it did not prove native Apple linkage.
 Each native driver invocation
 runs the target's static gate and all runtime gates declared by authority

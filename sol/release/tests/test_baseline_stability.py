@@ -259,7 +259,10 @@ class BaselineStabilityTest(unittest.TestCase):
             "URL_HASH",
         ):
             with self.subTest(token=token):
-                self.assertNotIn(token, source)
+                # Whole words: the helper names the CURL::libcurl target.
+                self.assertIsNone(
+                    re.search(rf"(?<![A-Za-z0-9_]){token}(?![A-Za-z0-9_])", source)
+                )
 
     def test_rust_and_licensing_inventory_is_unchanged(self):
         baseline_listing = subprocess.run(

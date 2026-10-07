@@ -115,6 +115,7 @@ class ReducedAppleFixture:
         *,
         iconv=True,
         corefoundation=True,
+        systemconfiguration=True,
         apple=True,
         before_call="",
         environment=None,
@@ -136,7 +137,9 @@ class ReducedAppleFixture:
             )
         if corefoundation:
             (frameworks / "CoreFoundation.framework").mkdir()
-        for name in ("libregorus_ffi.a", "libxml2.a", "libxmlsec1.a"):
+        if systemconfiguration:
+            (frameworks / "SystemConfiguration.framework").mkdir()
+        for name in ("libregorus_ffi.a", "libxml2.a", "libxmlsec1.a", "libcurl.a"):
             (self.root / name).touch()
         (self.source / "nvat.cpp").write_text(
             "int nvat_fixture() { return 0; }\n", encoding="utf-8"
@@ -183,6 +186,10 @@ class ReducedAppleFixture:
             f'  IMPORTED_LOCATION "{(self.root / "libxmlsec1.a").as_posix()}"\n'
             '  INTERFACE_LINK_LIBRARIES "LibXml2::LibXml2"\n'
             ")\n"
+            "add_library(CURL::libcurl STATIC IMPORTED)\n"
+            "set_target_properties(CURL::libcurl PROPERTIES\n"
+            f'  IMPORTED_LOCATION "{(self.root / "libcurl.a").as_posix()}"\n'
+            ")\n"
             f"{before_call}"
             f"{call}\n"
             "get_target_property(_regorus regorus_ffi INTERFACE_LINK_LIBRARIES)\n"
@@ -199,6 +206,7 @@ class ReducedAppleFixture:
             "get_target_property(_xmlsec xmlsec::xmlsec "
             "INTERFACE_LINK_LIBRARIES)\n"
             "get_target_property(_iconv Iconv::Iconv IMPORTED_LOCATION)\n"
+            "get_target_property(_curl CURL::libcurl INTERFACE_LINK_LIBRARIES)\n"
             f'file(WRITE "{self.properties.as_posix()}"\n'
             '  "REGORUS=${_regorus}\\n'
             'REGORUS_STATIC_LOCATION=${_regorus_static_location}\\n'
@@ -207,10 +215,11 @@ class ReducedAppleFixture:
             'REGORUS_TYPE=${_regorus_type}\\n'
             'REGORUS_STATIC_TYPE=${_regorus_static_type}\\n'
             'LIBXML=${_libxml}\\n'
-            'XMLSEC=${_xmlsec}\\nICONV=${_iconv}\\n")\n'
+            'XMLSEC=${_xmlsec}\\nICONV=${_iconv}\\nCURL=${_curl}\\n")\n'
             "add_library(nvat SHARED nvat.cpp)\n"
             "target_link_libraries(nvat PRIVATE\n"
             "  xmlsec::xmlsec\n"
+            "  CURL::libcurl\n"
             "  LibXml2::LibXml2\n"
             "  regorus_ffi\n"
             ")\n"
@@ -348,7 +357,20 @@ class AppleLinkClosureTest(unittest.TestCase):
             helper,
             re.MULTILINE,
         )
-        self.assertEqual(len(property_calls), 2)
+        self.assertEqual(
+            [target for target, _value in property_calls],
+            ["regorus_ffi", "LibXml2::LibXml2", "CURL::libcurl"],
+        )
+        self.assertEqual(
+            property_calls[2][1].strip(),
+            '"${_nvat_apple_systemconfiguration_real}"',
+        )
+        self.assertLess(
+            helper.index(
+                "if(NOT _nvat_apple_systemconfiguration_inside_sdk EQUAL 0)"
+            ),
+            helper.index("add_library(Iconv::Iconv UNKNOWN IMPORTED)"),
+        )
         self.assertEqual(helper.count(CORROSION_SDK_LINK_DIRECTORY), 1)
         self.assertRegex(
             helper,
@@ -435,6 +457,10 @@ class AppleLinkClosureTest(unittest.TestCase):
             self.assertEqual(iconv_target, "Iconv::Iconv")
             self.assertEqual(properties["XMLSEC"], "LibXml2::LibXml2")
             self.assertEqual(Path(iconv_path), fixture.sdk / "usr/lib/libiconv.tbd")
+            self.assertEqual(
+                Path(properties["CURL"]),
+                fixture.sdk / "System/Library/Frameworks/SystemConfiguration.framework",
+            )
             core_indices = [
                 index
                 for index, value in enumerate(nvat)
@@ -726,6 +752,7 @@ class AppleLinkClosureTest(unittest.TestCase):
         *,
         iconv=True,
         corefoundation=True,
+        systemconfiguration=True,
         apple=True,
         before_call="",
         direct_call=False,
@@ -736,6 +763,7 @@ class AppleLinkClosureTest(unittest.TestCase):
             temporary.name,
             iconv=iconv,
             corefoundation=corefoundation,
+            systemconfiguration=systemconfiguration,
             apple=apple,
             before_call=before_call,
             direct_call=direct_call,
@@ -766,6 +794,11 @@ class AppleLinkClosureTest(unittest.TestCase):
                 dict(corefoundation=False),
                 None,
             ),
+            (
+                "missing SystemConfiguration",
+                dict(systemconfiguration=False),
+                None,
+            ),
         )
         for name, options, diagnostic in cases:
             with self.subTest(name=name):
@@ -785,6 +818,15 @@ class AppleLinkClosureTest(unittest.TestCase):
                             f"SDK '{fixture.sdk}/System/Library/Frameworks'; "
                             "select a macOS SDK containing "
                             "System/Library/Frameworks/CoreFoundation.framework "
+                            "and remove the build directory, then retry"
+                        )
+                    elif name == "missing SystemConfiguration":
+                        diagnostic = (
+                            "Darwin/arm64 SystemConfiguration discovery failed: "
+                            "SystemConfiguration.framework was not found in "
+                            f"selected SDK '{fixture.sdk}/System/Library/Frameworks'; "
+                            "select a macOS SDK containing "
+                            "System/Library/Frameworks/SystemConfiguration.framework "
                             "and remove the build directory, then retry"
                         )
                     self.assert_exact_diagnostic(completed, diagnostic)

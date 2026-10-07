@@ -158,6 +158,54 @@ function(nvat_configure_apple_system_link_closure)
       "select the macOS SDK, then retry")
   endif()
 
+  # sol: curl 8 calls SCDynamicStoreCopyProxies at global init on macOS
+  # (lib/macos.c), so the static libcurl needs SystemConfiguration. It is an
+  # Apple system framework, inside the runtime allowlist's
+  # /System/Library/Frameworks/ root, and is taken from the selected SDK only.
+  if(NOT TARGET CURL::libcurl)
+    message(FATAL_ERROR
+      "Darwin/arm64 SystemConfiguration closure failed: static owner target "
+      "CURL::libcurl does not exist; create the selected CURL::libcurl target "
+      "before the Apple closure call, then retry")
+  endif()
+  unset(NVAT_APPLE_SYSTEMCONFIGURATION_FRAMEWORK CACHE)
+  set(
+    NVAT_APPLE_SYSTEMCONFIGURATION_FRAMEWORK
+    "NVAT_APPLE_SYSTEMCONFIGURATION_FRAMEWORK-NOTFOUND"
+  )
+  find_library(
+    NVAT_APPLE_SYSTEMCONFIGURATION_FRAMEWORK
+    NAMES SystemConfiguration
+    NO_DEFAULT_PATH
+    PATHS "${NVAT_APPLE_SDKROOT}/System/Library/Frameworks"
+  )
+  if(NOT NVAT_APPLE_SYSTEMCONFIGURATION_FRAMEWORK)
+    message(FATAL_ERROR
+      "Darwin/arm64 SystemConfiguration discovery failed: "
+      "SystemConfiguration.framework was not found in selected SDK "
+      "'${NVAT_APPLE_SDKROOT}/System/Library/Frameworks'; select a macOS SDK "
+      "containing System/Library/Frameworks/SystemConfiguration.framework and "
+      "remove the build directory, then retry")
+  endif()
+  get_filename_component(
+    _nvat_apple_systemconfiguration_real
+    "${NVAT_APPLE_SYSTEMCONFIGURATION_FRAMEWORK}"
+    REALPATH
+  )
+  string(
+    FIND
+    "${_nvat_apple_systemconfiguration_real}/"
+    "${_nvat_apple_sdkroot_real}/"
+    _nvat_apple_systemconfiguration_inside_sdk
+  )
+  if(NOT _nvat_apple_systemconfiguration_inside_sdk EQUAL 0)
+    message(FATAL_ERROR
+      "Darwin/arm64 SystemConfiguration discovery failed: resolved path "
+      "'${_nvat_apple_systemconfiguration_real}' is outside selected SDK "
+      "'${_nvat_apple_sdkroot_real}'; remove host or Homebrew cache inputs and "
+      "select the macOS SDK, then retry")
+  endif()
+
   foreach(_nvat_apple_rust_owner_target IN LISTS
           _nvat_apple_rust_owner_targets)
     set_property(
@@ -173,7 +221,10 @@ function(nvat_configure_apple_system_link_closure)
     INTERFACE_LINK_LIBRARIES "${_nvat_apple_corefoundation_real}")
   set_property(TARGET LibXml2::LibXml2 APPEND PROPERTY
     INTERFACE_LINK_LIBRARIES Iconv::Iconv)
+  set_property(TARGET CURL::libcurl APPEND PROPERTY
+    INTERFACE_LINK_LIBRARIES "${_nvat_apple_systemconfiguration_real}")
 
   unset(NVAT_APPLE_ICONV_LIBRARY CACHE)
   unset(NVAT_APPLE_COREFOUNDATION_FRAMEWORK CACHE)
+  unset(NVAT_APPLE_SYSTEMCONFIGURATION_FRAMEWORK CACHE)
 endfunction()
