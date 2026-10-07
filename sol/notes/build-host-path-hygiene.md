@@ -88,9 +88,13 @@ all five items.
    and AppleClang C/C++ target, from both the CLI and the SDK CMake files, and
    adds `--remap-path-prefix` for the repository root, the binary directory and
    the Cargo home (to `cargo-home`) to the `regorus_ffi` RUSTFLAGS, which
-   reach every crate in its graph. The vendored autoconf projects are left
-   alone: OpenSSL records its CFLAGS in the library, so a remap flag there would
-   embed the path it removes.
+   reach every crate in its graph. On macOS the linker also writes a debug map
+   (N_OSO stabs) naming each linked object that carries debug information, the
+   Rust standard-library objects in `libregorus_ffi.a`, by real absolute path;
+   `-oso_prefix` strips the checkout from it. The build-root gate found those
+   five entries on the first sol.6 macOS build. The vendored autoconf projects
+   are left alone: OpenSSL records its CFLAGS in the library, so a remap flag
+   there would embed the path it removes.
 3. The build-root gate (`gate.gate_build_roots`) runs on the staged and the
    extracted archive. A root with fewer than two path components also matches
    ordinary relative paths (`regorus-src/src/...`), so the Linux build now runs

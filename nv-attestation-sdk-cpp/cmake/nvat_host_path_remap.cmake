@@ -37,6 +37,13 @@ function(nvat_add_build_path_remap)
     "-ffile-prefix-map=${NVAT_REPOSITORY_ROOT}=."
     "-ffile-prefix-map=${CMAKE_BINARY_DIR}=."
   )
+  if(APPLE)
+    # ld64 writes a debug map (N_OSO stabs) naming every linked object that
+    # carries debug information, such as the Rust standard library objects in
+    # libregorus_ffi.a, by its real absolute path. Strip the checkout from it.
+    get_filename_component(_nvat_real_root "${NVAT_REPOSITORY_ROOT}" REALPATH)
+    add_link_options("LINKER:-oso_prefix,${_nvat_real_root}/")
+  endif()
 endfunction()
 
 # Adds --remap-path-prefix to RUSTFLAGS for a Corrosion target and every Rust

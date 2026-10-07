@@ -1548,7 +1548,7 @@ class AppleLinkClosureTest(unittest.TestCase):
         self.assertIn("VPE must also rerun Pro5E", normalized)
         self.assertIn("record both final link commands", normalized)
         self.assertIn("exactly once after their static owners", normalized)
-        self.assertIn("contain neither as a direct link item", normalized)
+        self.assertIn("contain none of them as a direct link item", normalized)
         self.assertIn(
             "This Linux lode observed only generated CMake link structure; "
             "it did not prove native Apple linkage.",
