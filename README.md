@@ -1,6 +1,6 @@
 # NVIDIA Attestation SDK (NVAT)
 
-**sol pbc modified fork.** This repository contains sol pbc's changes to [NVIDIA's Attestation SDK](https://github.com/NVIDIA/attestation-sdk). The [modified upstream file record](sol/notes/modified-upstream-files.md) identifies the files changed for each published `sol.1`–`sol.4` revision. Current changed upstream files carry in-file change notices, and NVIDIA's existing notices remain in place.
+**sol pbc modified fork.** This repository contains sol pbc's changes to [NVIDIA's Attestation SDK](https://github.com/NVIDIA/attestation-sdk). The [modified upstream file record](sol/notes/modified-upstream-files.md) identifies the files changed for each published `sol` revision. Current changed upstream files carry in-file change notices, and NVIDIA's existing notices remain in place.
 
 [![license](https://img.shields.io/badge/license-Apache%202.0-brightgreen.svg)](./LICENSE)
 [![docs](https://img.shields.io/badge/docs-latest-blue.svg)](https://docs.nvidia.com/attestation/nv-attestation-sdk-cpp/latest/overview.html)

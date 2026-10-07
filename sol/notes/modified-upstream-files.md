@@ -9,6 +9,7 @@ sol pbc maintains a modified fork of NVIDIA’s Attestation SDK. This record ide
 | `sol.3` | `6a3079abd039b27a799ea4f01df827bf5ef4a2b4` | `73efa3ac1bec28ed7d7f0c0811a6c993e722dbd4` | [List B](#list-b) |
 | `sol.4` | `a5a2967ee0c657569a058ba56ad288543775fe94` | `73efa3ac1bec28ed7d7f0c0811a6c993e722dbd4` | [List B](#list-b) |
 | `sol.5` | `873252c6f4f4e54d04b7db14922e8e46102467d3` | `73efa3ac1bec28ed7d7f0c0811a6c993e722dbd4` | [List C](#list-c) |
+| `sol.6` | `fdc3c39958f12ba1055ae5beebc182577f7430b3` | `73efa3ac1bec28ed7d7f0c0811a6c993e722dbd4` | [List D](#list-d) |
 
 ## List A: sol.1 and sol.2
 
@@ -77,6 +78,43 @@ These upstream files differ from the comparison base:
 Some sol.5 changes carry `sol:` comments in the code; not every modified file does, so this list is the complete record.
 
 The lists cover files present at each source commit and its upstream base, with differing contents. Files added by sol pbc are outside this comparison. NVIDIA’s existing copyright and licence notices remain in the source.
+
+## List D: sol.6
+
+These upstream files differ from the comparison base:
+
+- `README.md`
+- `nv-attestation-cli/CMakeLists.txt`
+- `nv-attestation-cli/src/attest.cpp`
+- `nv-attestation-cli/src/main.cpp`
+- `nv-attestation-cli/src/nvattest_options.h`
+- `nv-attestation-cli/src/nvattest_types.h`
+- `nv-attestation-cli/src/utils.cpp`
+- `nv-attestation-cli/src/utils.h`
+- `nv-attestation-cli/tests/CMakeLists.txt`
+- `nv-attestation-sdk-cpp/CMakeLists.txt`
+- `nv-attestation-sdk-cpp/include/nv_attestation/claims.h`
+- `nv-attestation-sdk-cpp/include/nv_attestation/nv_http.h`
+- `nv-attestation-sdk-cpp/include/nv_attestation/nv_ocsp.h`
+- `nv-attestation-sdk-cpp/include/nv_attestation/nv_x509.h`
+- `nv-attestation-sdk-cpp/include/nv_attestation/utils.h`
+- `nv-attestation-sdk-cpp/include/nvat.h.in`
+- `nv-attestation-sdk-cpp/src/claims_evaluator.cpp`
+- `nv-attestation-sdk-cpp/src/gpu/corelib_client.cpp`
+- `nv-attestation-sdk-cpp/src/gpu/nvml_client.cpp`
+- `nv-attestation-sdk-cpp/src/gpu/verify.cpp`
+- `nv-attestation-sdk-cpp/src/init.cpp`
+- `nv-attestation-sdk-cpp/src/nv_http.cpp`
+- `nv-attestation-sdk-cpp/src/nv_ocsp.cpp`
+- `nv-attestation-sdk-cpp/src/nv_x509.cpp`
+- `nv-attestation-sdk-cpp/src/nvat.cpp`
+- `nv-attestation-sdk-cpp/src/rim.cpp`
+- `nv-attestation-sdk-cpp/src/switch/nscq_client.cpp`
+- `nv-attestation-sdk-cpp/src/switch/verify.cpp`
+- `nv-attestation-sdk-cpp/unit-tests/CMakeLists.txt`
+- `nv-attestation-sdk-cpp/unit-tests/nv_x509_test.cpp`
+
+Each carries `Modified by sol pbc.` except `README.md`, whose opening paragraph is itself the fork notice.
 
 ## Since sol.5, on `main`
 
