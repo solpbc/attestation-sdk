@@ -199,7 +199,7 @@ if (-not ($ReuseDependencies -and (Test-Path (Join-Path $deps 'lib\libcurl.lib')
     New-Item -ItemType Directory -Force $deps | Out-Null
     $env:CMAKE_BUILD_PARALLEL_LEVEL = [Environment]::ProcessorCount
 
-    Push-Location (Join-Path $src 'openssl-3.6.4')
+    Push-Location (Join-Path $src 'openssl-3.6.5')
     $savedPath = $env:Path
     $env:Path = "$perlBin;$env:Path"
     Invoke-Checked 'OpenSSL configure' {
@@ -225,7 +225,7 @@ if (-not ($ReuseDependencies -and (Test-Path (Join-Path $deps 'lib\libcurl.lib')
     # xmlsec's MSVC makefile names the static libxml2 archive libxml2_a.lib.
     Copy-Item (Join-Path $deps 'lib\libxml2s.lib') (Join-Path $deps 'lib\libxml2_a.lib') -Force
 
-    Push-Location (Join-Path $src 'xmlsec1-1.2.39\win32')
+    Push-Location (Join-Path $src 'xmlsec1-1.2.42\win32')
     Invoke-Checked 'xmlsec configure' {
         cscript //NoLogo configure.js "prefix=$deps" "include=$deps\include;$deps\include\libxml2" "lib=$deps\lib" `
             crypto=openssl-300 xslt=no iconv=no static=yes with-dl=no with-openssl3-engines=no cruntime=/MD

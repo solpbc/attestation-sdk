@@ -254,8 +254,8 @@ else()
   set(OPENSSL_INSTALL_DIR "${CMAKE_BINARY_DIR}/openssl-install")
 
   ExternalProject_Add(openssl_external
-    URL https://github.com/openssl/openssl/releases/download/openssl-3.6.4/openssl-3.6.4.tar.gz
-    URL_HASH SHA256=9bffaa1ad1e07b354c21bd3324ec02fa15579f45a7d0494b3e74bc449b7333ef
+    URL https://github.com/openssl/openssl/releases/download/openssl-3.6.5/openssl-3.6.5.tar.gz
+    URL_HASH SHA256=a2157c2830efdec3788939b00c9b0638306d3f0bbb76dc4832ee503bb397df98
     CONFIGURE_COMMAND ${NVAT_EP_ENV_COMMAND} <SOURCE_DIR>/Configure
       ${_OPENSSL_CONFIGURE_TARGET}
       "CC=${_EP_CC}"
@@ -333,13 +333,13 @@ else()
     BUILD_IN_SOURCE 1
   )
 
-  # Build xmlsec 1.2.39 statically (depends on OpenSSL 3 and libxml2)
+  # Build xmlsec 1.2.42 statically (depends on OpenSSL 3 and libxml2)
   set(XMLSEC_INSTALL_DIR "${CMAKE_BINARY_DIR}/xmlsec-install")
 
   ExternalProject_Add(xmlsec_external
     DEPENDS openssl_external libxml2_external
-    URL https://github.com/lsh123/xmlsec/releases/download/xmlsec-1_2_39/xmlsec1-1.2.39.tar.gz
-    URL_HASH SHA256=15f2f55ea5968e578fcd24b3b427e553876c86c147dc7f03923e98fc2768a1fa
+    URL https://github.com/lsh123/xmlsec/releases/download/xmlsec-1_2_42/xmlsec1-1.2.42.tar.gz
+    URL_HASH SHA256=5359e3c19016ab164b505c1222ef5a2d87b34f50f85ff91d765f4aaa0df42db2
     CONFIGURE_COMMAND ${NVAT_EP_ENV_COMMAND} <SOURCE_DIR>/configure
       --prefix=${XMLSEC_INSTALL_DIR}
       --disable-shared

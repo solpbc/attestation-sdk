@@ -3,10 +3,10 @@
   "comment": "Pinned inputs for the native Windows verifier build. The five library archives are the same coordinates the POSIX build declares; sol/release/tests/test_windows_inputs.py holds them equal.",
   "sources": [
     {
-      "name": "openssl-3.6.4.tar.gz",
-      "dir": "openssl-3.6.4",
-      "url": "https://github.com/openssl/openssl/releases/download/openssl-3.6.4/openssl-3.6.4.tar.gz",
-      "sha256": "9bffaa1ad1e07b354c21bd3324ec02fa15579f45a7d0494b3e74bc449b7333ef"
+      "name": "openssl-3.6.5.tar.gz",
+      "dir": "openssl-3.6.5",
+      "url": "https://github.com/openssl/openssl/releases/download/openssl-3.6.5/openssl-3.6.5.tar.gz",
+      "sha256": "a2157c2830efdec3788939b00c9b0638306d3f0bbb76dc4832ee503bb397df98"
     },
     {
       "name": "libxml2-2.11.9.tar.xz",
@@ -15,10 +15,10 @@
       "sha256": "780157a1efdb57188ec474dca87acaee67a3a839c2525b2214d318228451809f"
     },
     {
-      "name": "xmlsec1-1.2.39.tar.gz",
-      "dir": "xmlsec1-1.2.39",
-      "url": "https://github.com/lsh123/xmlsec/releases/download/xmlsec-1_2_39/xmlsec1-1.2.39.tar.gz",
-      "sha256": "15f2f55ea5968e578fcd24b3b427e553876c86c147dc7f03923e98fc2768a1fa"
+      "name": "xmlsec1-1.2.42.tar.gz",
+      "dir": "xmlsec1-1.2.42",
+      "url": "https://github.com/lsh123/xmlsec/releases/download/xmlsec-1_2_42/xmlsec1-1.2.42.tar.gz",
+      "sha256": "5359e3c19016ab164b505c1222ef5a2d87b34f50f85ff91d765f4aaa0df42db2"
     },
     {
       "name": "curl-8.22.0.tar.gz",

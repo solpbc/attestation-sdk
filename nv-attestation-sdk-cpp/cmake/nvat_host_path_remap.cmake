@@ -20,9 +20,14 @@ get_filename_component(NVAT_REPOSITORY_ROOT
 
 # Adds -ffile-prefix-map for the repository root and the top-level binary
 # directory to every C and C++ target created after the call in this directory
-# and the subdirectories it adds. MSVC is left alone.
+# and the subdirectories it adds. MSVC uses /pathmap for __FILE__.
 function(nvat_add_build_path_remap)
   if(MSVC)
+    add_compile_options(
+      /experimental:deterministic
+      "/pathmap:${NVAT_REPOSITORY_ROOT}=."
+      "/pathmap:${CMAKE_BINARY_DIR}=."
+    )
     return()
   endif()
   foreach(_nvat_language C CXX)
