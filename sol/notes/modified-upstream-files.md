@@ -10,6 +10,7 @@ sol pbc maintains a modified fork of NVIDIA’s Attestation SDK. This record ide
 | `sol.4` | `a5a2967ee0c657569a058ba56ad288543775fe94` | `73efa3ac1bec28ed7d7f0c0811a6c993e722dbd4` | [List B](#list-b) |
 | `sol.5` | `873252c6f4f4e54d04b7db14922e8e46102467d3` | `73efa3ac1bec28ed7d7f0c0811a6c993e722dbd4` | [List C](#list-c) |
 | `sol.6` | `fdc3c39958f12ba1055ae5beebc182577f7430b3` | `73efa3ac1bec28ed7d7f0c0811a6c993e722dbd4` | [List D](#list-d) |
+| `sol.7` | `69a71c859ec02b6e5f10616b8b8a873c230941c9` | `73efa3ac1bec28ed7d7f0c0811a6c993e722dbd4` | [List D](#list-d) |
 
 ## List A: sol.1 and sol.2
 
@@ -79,7 +80,7 @@ Some sol.5 changes carry `sol:` comments in the code; not every modified file do
 
 The lists cover files present at each source commit and its upstream base, with differing contents. Files added by sol pbc are outside this comparison. NVIDIA’s existing copyright and licence notices remain in the source.
 
-## List D: sol.6
+## List D: sol.6 and sol.7
 
 These upstream files differ from the comparison base:
 
