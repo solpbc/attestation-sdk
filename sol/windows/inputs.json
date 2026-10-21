@@ -47,6 +47,10 @@
     "vcruntime140.dll",
     "vcruntime140_1.dll"
   ],
+  "msvc_runtime_arm64": [
+    "msvcp140.dll",
+    "vcruntime140.dll"
+  ],
   "cmake_sources": [
     {
       "name": "cli11-bfffd37e1f804ca4fae1caae106935791696b6a9.tar.gz",
