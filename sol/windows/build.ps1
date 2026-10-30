@@ -246,7 +246,7 @@ if (-not ($ReuseDependencies -and (Test-Path (Join-Path $deps 'lib\libcurl.lib')
     # xmlsec's MSVC makefile names the static libxml2 archive libxml2_a.lib.
     Copy-Item (Join-Path $deps 'lib\libxml2s.lib') (Join-Path $deps 'lib\libxml2_a.lib') -Force
 
-    Push-Location (Join-Path $src 'xmlsec1-1.2.42\win32')
+    Push-Location (Join-Path $src 'xmlsec1-1.2.43\win32')
     Invoke-Checked 'xmlsec configure' {
         cscript //NoLogo configure.js "prefix=$deps" "include=$deps\include;$deps\include\libxml2" "lib=$deps\lib" `
             crypto=openssl-300 xslt=no iconv=no static=yes with-dl=no with-openssl3-engines=no cruntime=/MD
@@ -262,7 +262,7 @@ if (-not ($ReuseDependencies -and (Test-Path (Join-Path $deps 'lib\libcurl.lib')
     # CA path or OpenSSL fallback store is compiled in: the SDK hands curl the
     # pinned bundle as a blob.
     Invoke-DependencyConfigure 'curl' (@(
-        '-S', (Join-Path $src 'curl-8.22.0'), '-B', (Join-Path $Root 'b-curl'), '-G', 'NMake Makefiles', '-DCMAKE_BUILD_TYPE=Release', "-DCMAKE_INSTALL_PREFIX=$deps",
+        '-S', (Join-Path $src 'curl-8.23.0'), '-B', (Join-Path $Root 'b-curl'), '-G', 'NMake Makefiles', '-DCMAKE_BUILD_TYPE=Release', "-DCMAKE_INSTALL_PREFIX=$deps",
         "-DOPENSSL_ROOT_DIR=$deps", '-DOPENSSL_USE_STATIC_LIBS=ON', '-DBUILD_SHARED_LIBS=OFF', '-DBUILD_STATIC_LIBS=ON', '-DBUILD_CURL_EXE=OFF', '-DCURL_USE_OPENSSL=ON',
         '-DCURL_USE_SCHANNEL=OFF', '-DCURL_USE_LIBSSH2=OFF', '-DCURL_USE_LIBPSL=OFF', '-DCURL_ZLIB=OFF', '-DCURL_BROTLI=OFF', '-DCURL_ZSTD=OFF',
         '-DUSE_NGHTTP2=OFF', '-DUSE_LIBIDN2=OFF', '-DCURL_DISABLE_LDAP=ON', '-DCURL_DISABLE_LDAPS=ON', '-DENABLE_UNICODE=ON',
